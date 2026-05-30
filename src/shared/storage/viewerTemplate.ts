@@ -243,6 +243,7 @@ const VIEWER_HTML = `<!doctype html>
         .stage { min-height: 62vh; }
       }
     </style>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.17.0/dist/katex.min.css" />
   </head>
   <body>
     <div class="shell">
@@ -261,6 +262,7 @@ const VIEWER_HTML = `<!doctype html>
       </header>
       <main class="screen" id="screen"></main>
     </div>
+    <script src="https://cdn.jsdelivr.net/npm/katex@0.17.0/dist/katex.min.js"></script>
     <script>
       const dataRoot = './data';
       const state = {
@@ -280,28 +282,8 @@ const VIEWER_HTML = `<!doctype html>
       const cache = new Map();
       const escapeHtml = (value) => String(value).replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
       const mathPattern = /(\$\$[\s\S]+?\$\$|\$[^$\n]+?\$)/g;
-      const mathCommands = {
-        '\\alpha': 'α',
-        '\\beta': 'β',
-        '\\gamma': 'γ',
-        '\\delta': 'δ',
-        '\\epsilon': 'ε',
-        '\\theta': 'θ',
-        '\\lambda': 'λ',
-        '\\mu': 'μ',
-        '\\pi': 'π',
-        '\\rho': 'ρ',
-        '\\sigma': 'σ',
-        '\\tau': 'τ',
-        '\\phi': 'φ',
-        '\\omega': 'ω',
-        '\\times': '×',
-        '\\cdot': '·',
-        '\\pm': '±',
-        '\\leq': '≤',
-        '\\geq': '≥',
-        '\\neq': '≠',
-        '\\to': '→',
+      const katexMacros = {
+        '\\\\infin': '\\\\infty',
       };
       function textStyleToString(style) {
         return [
@@ -368,21 +350,21 @@ const VIEWER_HTML = `<!doctype html>
         return blocks.join('');
       }
       function renderMathExpression(content, displayMode) {
-        let output = escapeHtml(String(content).trim());
-        output = output.replace(/\\frac\s*\{([^{}]+)\}\s*\{([^{}]+)\}/g, (_match, numerator, denominator) => {
-          return '<span class="tex-frac"><span class="tex-num">' + numerator + '</span><span class="tex-rule"></span><span class="tex-den">' + denominator + '</span></span>';
-        });
-        output = output.replace(/\\frac\s+([^\s{}]+)\s+([^\s{}]+)/g, (_match, numerator, denominator) => {
-          return '<span class="tex-frac"><span class="tex-num">' + numerator + '</span><span class="tex-rule"></span><span class="tex-den">' + denominator + '</span></span>';
-        });
-        output = output.replace(/([A-Za-z0-9\)\]])\^\{([^{}]+)\}/g, '$1<sup>$2</sup>');
-        output = output.replace(/([A-Za-z0-9\)\]])\^([A-Za-z0-9+-]+)/g, '$1<sup>$2</sup>');
-        output = output.replace(/([A-Za-z0-9\)\]])_\{([^{}]+)\}/g, '$1<sub>$2</sub>');
-        output = output.replace(/([A-Za-z0-9\)\]])_([A-Za-z0-9+-]+)/g, '$1<sub>$2</sub>');
-        for (const [command, replacement] of Object.entries(mathCommands)) {
-          output = output.replace(new RegExp(command.replace(/[-/\\^*+?.()|[\]{}]/g, '\\$&'), 'g'), replacement);
+        const source = String(content).trim();
+        if (typeof katex === 'undefined') {
+          return '<span class="' + (displayMode ? 'tex-block' : 'tex-inline') + '">' + escapeHtml(source) + '</span>';
         }
-        return '<span class="' + (displayMode ? 'tex-block' : 'tex-inline') + '">' + output + '</span>';
+        try {
+          return katex.renderToString(source, {
+            displayMode,
+            throwOnError: false,
+            strict: false,
+            trust: false,
+            macros: katexMacros,
+          });
+        } catch {
+          return '<span class="' + (displayMode ? 'tex-block' : 'tex-inline') + '"><code>' + escapeHtml(source) + '</code></span>';
+        }
       }
       function splitTextSegments(content) {
         const segments = [];

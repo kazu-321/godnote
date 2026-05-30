@@ -8,8 +8,8 @@
   "canvas": {
     "type": "infinite",
     "viewport": {
-      "x": -364,
-      "y": 86,
+      "x": 41,
+      "y": 63,
       "scale": 1
     },
     "grid": {
@@ -113,7 +113,7 @@
         "id": "aca36ced-e09d-4236-a30f-088b1b8b83df",
         "type": "image",
         "x": 1414,
-        "y": 130,
+        "y": 129,
         "width": 218,
         "height": 240,
         "rotation": 0,

@@ -18,6 +18,9 @@ function renderKatex(source: string, displayMode: boolean) {
       throwOnError: false,
       strict: false,
       trust: false,
+      macros: {
+        "\\infin": "\\infty",
+      },
     });
   } catch {
     return `<code>${source.replaceAll("<", "&lt;").replaceAll(">", "&gt;")}</code>`;

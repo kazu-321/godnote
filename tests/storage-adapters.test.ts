@@ -3,6 +3,7 @@ import test from "node:test";
 import { LocalApiStorageAdapter } from "../src/shared/storage/localApiStorageAdapter";
 import { StaticReadonlyStorageAdapter } from "../src/shared/storage/staticReadonlyStorageAdapter";
 import { getWorkspaceDeployWorkflowYaml } from "../src/shared/storage/workspaceStorageAdapter";
+import { getWorkspaceViewerHtml } from "../src/shared/storage/viewerTemplate";
 
 function withFetchStub<T>(impl: typeof fetch, run: () => Promise<T> | T) {
   const originalFetch = globalThis.fetch;
@@ -176,4 +177,11 @@ test("workspace Pages workflow is self-contained and does not use npm ci", () =>
   assert.match(workflow, /cp -R viewer\/index\.html dist\/index\.html/);
   assert.match(workflow, /cp -R viewer\/viewer\.html dist\/viewer\.html/);
   assert.doesNotMatch(workflow, /npm ci/);
+});
+
+test("viewer template renders math with katex", () => {
+  const html = getWorkspaceViewerHtml();
+  assert.match(html, /katex\.min\.js/);
+  assert.match(html, /katex\.renderToString/);
+  assert.match(html, /\\\\infin/);
 });
