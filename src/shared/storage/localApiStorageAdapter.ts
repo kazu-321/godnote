@@ -1,7 +1,7 @@
 import type { StorageAdapter } from "./storageAdapter";
 import type { AppManifest } from "../../features/notes/model/manifestTypes";
 import type { SubjectData } from "../../features/notes/model/subjectTypes";
-import type { NoteData, NoteMeta, CreateSubjectInput, CreateNoteInput, WritePngAssetInput, DeleteAssetInput, GenerateThumbnailInput, AssetRef } from "../../features/notes/model/noteTypes";
+import type { NoteData, NoteMeta, CreateSubjectInput, CreateNoteInput, WritePngAssetInput, DeleteAssetInput, GenerateThumbnailInput, AssetRef, LoadAssetInput } from "../../features/notes/model/noteTypes";
 
 async function request(url: string, init?: RequestInit): Promise<Response> {
   return fetch(url, {
@@ -34,6 +34,11 @@ export class LocalApiStorageAdapter implements StorageAdapter {
   deleteSubject(subjectId: string) { return noContent(`/api/subjects/${subjectId}`, { method: "DELETE" }); }
   createNote(input: CreateNoteInput) { return json<NoteData>(`/api/subjects/${input.subjectId}/notes`, { method: "POST", body: JSON.stringify(input) }); }
   deleteNote(subjectId: string, noteId: string) { return noContent(`/api/subjects/${subjectId}/notes/${noteId}`, { method: "DELETE" }); }
+  async loadAsset(input: LoadAssetInput) {
+    const response = await request(`/api/subjects/${input.subjectId}/notes/${input.noteId}/assets?path=${encodeURIComponent(input.path)}`);
+    if (!response.ok) throw new Error(`API error ${response.status} for /api/subjects/${input.subjectId}/notes/${input.noteId}/assets`);
+    return new Uint8Array(await response.arrayBuffer());
+  }
   writePngAsset(input: WritePngAssetInput) { return json<AssetRef>(`/api/subjects/${input.subjectId}/notes/${input.noteId}/assets`, { method: "POST", body: JSON.stringify({ fileName: input.fileName, bytes: Array.from(input.bytes) }) }); }
   deleteAsset(input: DeleteAssetInput) { return noContent(`/api/subjects/${input.subjectId}/notes/${input.noteId}/assets`, { method: "DELETE", body: JSON.stringify({ path: input.path }) }); }
   generateThumbnail(input: GenerateThumbnailInput) { return json<AssetRef>(`/api/subjects/${input.subjectId}/notes/${input.noteId}/thumbnail`, { method: "POST" }); }

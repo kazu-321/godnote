@@ -45,6 +45,12 @@ export interface WritePngAssetInput {
   fileName?: string;
 }
 
+export interface LoadAssetInput {
+  subjectId: string;
+  noteId: string;
+  path: string;
+}
+
 export interface DeleteAssetInput {
   subjectId: string;
   noteId: string;

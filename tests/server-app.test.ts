@@ -100,6 +100,10 @@ test("api routes serve health and workspace data", async () => {
     assert.equal(loadedNote.id, noteId);
     assert.equal(loadedNote.canvas.type, "infinite");
 
+    const assetBuffer = await fetch(`${baseUrl}/api/subjects/${subjectId}/notes/${noteId}/assets?path=${encodeURIComponent("assets/images/image.png")}`).then((response) => response.arrayBuffer());
+    const assetBytes = new Uint8Array(assetBuffer);
+    assert.equal(assetBytes.byteLength > 0, true);
+
     const assetResponse = await fetch(`${baseUrl}/data/notes/${subjectId}/${noteId}/assets/images/image.png`);
     assert.equal(assetResponse.ok, true);
   } finally {

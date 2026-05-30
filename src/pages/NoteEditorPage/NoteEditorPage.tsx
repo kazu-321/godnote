@@ -360,10 +360,6 @@ function createFreehandElement(points: Point[]): FreehandCanvasElement {
   };
 }
 
-function resolveAssetUrl(subjectId: string, noteId: string, src: string) {
-  return new URL(`data/notes/${subjectId}/${noteId}/${src}`, window.location.href).toString();
-}
-
 function lineViewBox(element: LineCanvasElement) {
   return {
     x1: element.start.x - element.x,
@@ -659,10 +655,12 @@ export function NoteEditorPage(props: { subjectId: string; noteId: string; stora
   const [pdfImportLoading, setPdfImportLoading] = useState(false);
   const [spacePressed, setSpacePressed] = useState(false);
   const [shiftPressed, setShiftPressed] = useState(false);
+  const [imageAssetUrls, setImageAssetUrls] = useState<Record<string, string>>({});
   const [pendingLine, setPendingLine] = useState<{ start: Point; current: Point } | null>(null);
   const canvasRef = useRef<HTMLDivElement | null>(null);
   const viewportRef = useRef(viewport);
   const canvasStateRef = useRef(canvasState);
+  const imageAssetUrlsRef = useRef<Record<string, string>>({});
   const touchGestureRef = useRef<TouchGesture>(null);
   const touchPointersRef = useRef<Map<number, { point: Point; pointerType: string }>>(new Map());
   const lastElementPointerDownRef = useRef<{ elementId: string; at: number } | null>(null);
@@ -1077,6 +1075,55 @@ export function NoteEditorPage(props: { subjectId: string; noteId: string; stora
       cancelled = true;
     };
   }, [props.noteId, props.subjectId, storage]);
+
+  useEffect(() => {
+    const previousUrls = imageAssetUrlsRef.current;
+    imageAssetUrlsRef.current = {};
+    setImageAssetUrls({});
+    for (const url of Object.values(previousUrls)) {
+      URL.revokeObjectURL(url);
+    }
+    if (!note) return;
+
+    const imageSrcs = [...new Set(elements.filter((element): element is ImageCanvasElement => element.type === "image").map((element) => element.src))];
+    if (imageSrcs.length === 0) return;
+
+    let cancelled = false;
+    const createdUrls: string[] = [];
+    Promise.allSettled(
+      imageSrcs.map(async (src) => {
+        const bytes = await storage.loadAsset({
+          subjectId: props.subjectId,
+          noteId: props.noteId,
+          path: src,
+        });
+        const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+        const objectUrl = URL.createObjectURL(
+          new Blob([buffer], { type: "image/png" }),
+        );
+        createdUrls.push(objectUrl);
+        return [src, objectUrl] as const;
+      }),
+    ).then((results) => {
+      if (cancelled) {
+        for (const url of createdUrls) URL.revokeObjectURL(url);
+        return;
+      }
+      const nextUrls = Object.fromEntries(results.flatMap((result) => (result.status === "fulfilled" ? [result.value] : [])));
+      imageAssetUrlsRef.current = nextUrls;
+      setImageAssetUrls(nextUrls);
+      for (const result of results) {
+        if (result.status === "rejected") {
+          console.error("Failed to load note image asset", result.reason);
+        }
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      for (const url of createdUrls) URL.revokeObjectURL(url);
+    };
+  }, [elements, note, props.noteId, props.subjectId, storage]);
 
   useEffect(() => {
     if (!note) {
@@ -2073,7 +2120,7 @@ export function NoteEditorPage(props: { subjectId: string; noteId: string; stora
               height: `${element.height}px`,
               zIndex: element.zIndex,
             } as const;
-            const assetUrl = element.type === "image" ? resolveAssetUrl(props.subjectId, props.noteId, element.src) : null;
+            const assetUrl = element.type === "image" ? imageAssetUrls[element.src] ?? null : null;
             return (
               <div
                 key={element.id}

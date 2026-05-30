@@ -6,6 +6,7 @@ import type {
   GenerateThumbnailInput,
   NoteData,
   NoteMeta,
+  LoadAssetInput,
   WritePngAssetInput,
 } from "../../features/notes/model/noteTypes";
 import type { AppManifest } from "../../features/notes/model/manifestTypes";
@@ -24,6 +25,7 @@ export interface StorageAdapter {
   deleteSubject(subjectId: string): Promise<void>;
   createNote(input: CreateNoteInput): Promise<NoteData>;
   deleteNote(subjectId: string, noteId: string): Promise<void>;
+  loadAsset(input: LoadAssetInput): Promise<Uint8Array>;
   writePngAsset(input: WritePngAssetInput): Promise<AssetRef>;
   deleteAsset(input: DeleteAssetInput): Promise<void>;
   generateThumbnail(input: GenerateThumbnailInput): Promise<AssetRef>;

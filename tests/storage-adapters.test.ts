@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { LocalApiStorageAdapter } from "../src/shared/storage/localApiStorageAdapter";
 import { StaticReadonlyStorageAdapter } from "../src/shared/storage/staticReadonlyStorageAdapter";
+import { getWorkspaceDeployWorkflowYaml } from "../src/shared/storage/workspaceStorageAdapter";
 
 function withFetchStub<T>(impl: typeof fetch, run: () => Promise<T> | T) {
   const originalFetch = globalThis.fetch;
@@ -25,6 +26,12 @@ test("static readonly adapter reads JSON from the static data tree", async () =>
   await withFetchStub(
     (async (input: RequestInfo | URL, init?: RequestInit) => {
       requests.push({ url: String(input), init });
+      if (String(input).includes("/assets/images/")) {
+        return new Response(new Uint8Array([1, 2, 3]), {
+          status: 200,
+          headers: { "Content-Type": "image/png" },
+        });
+      }
       const payload =
         String(input) === "/api/subjects"
           ? {
@@ -46,10 +53,13 @@ test("static readonly adapter reads JSON from the static data tree", async () =>
     async () => {
       const loadedManifest = await adapter.loadManifest();
       assert.deepEqual(loadedManifest, manifest);
+      const loadedAsset = await adapter.loadAsset({ subjectId: "subject-a", noteId: "note-a", path: "assets/images/image.png" });
+      assert.deepEqual([...loadedAsset], [1, 2, 3]);
     },
   );
 
   assert.equal(requests[0]?.url, "/data/manifest.json");
+  assert.equal(requests[1]?.url, "/data/notes/subject-a/note-a/assets/images/image.png");
 });
 
 test("local api adapter issues the expected requests", async () => {
@@ -59,6 +69,12 @@ test("local api adapter issues the expected requests", async () => {
   await withFetchStub(
     (async (input: RequestInfo | URL, init?: RequestInit) => {
       requests.push({ url: String(input), init });
+      if (String(input).includes("/assets?path=")) {
+        return new Response(new Uint8Array([1, 2, 3]), {
+          status: 200,
+          headers: { "Content-Type": "image/png" },
+        });
+      }
       return new Response(JSON.stringify({ schemaVersion: 1, id: "subject-a", name: "数学", path: "subjects/subject-a.json" }), {
         status: 200,
         headers: { "Content-Type": "application/json" },
@@ -66,6 +82,8 @@ test("local api adapter issues the expected requests", async () => {
     }) as typeof fetch,
     async () => {
       await adapter.loadSubject("subject-a");
+      const asset = await adapter.loadAsset({ subjectId: "subject-a", noteId: "note-a", path: "assets/images/image.png" });
+      assert.deepEqual([...asset], [1, 2, 3]);
       await adapter.saveManifest({
         schemaVersion: 1,
         appName: "godnote",
@@ -79,10 +97,12 @@ test("local api adapter issues the expected requests", async () => {
 
   assert.equal(requests[0]?.url, "/api/subjects/subject-a");
   assert.equal(requests[0]?.init?.method, undefined);
-  assert.equal(requests[1]?.url, "/api/manifest");
-  assert.equal(requests[1]?.init?.method, "PUT");
-  assert.equal(requests[2]?.url, "/api/subjects");
-  assert.equal(requests[2]?.init?.method, "POST");
+  assert.equal(requests[1]?.url, "/api/subjects/subject-a/notes/note-a/assets?path=assets%2Fimages%2Fimage.png");
+  assert.equal(requests[1]?.init?.method, undefined);
+  assert.equal(requests[2]?.url, "/api/manifest");
+  assert.equal(requests[2]?.init?.method, "PUT");
+  assert.equal(requests[3]?.url, "/api/subjects");
+  assert.equal(requests[3]?.init?.method, "POST");
 });
 
 test("readonly writes fail immediately", async () => {
@@ -146,4 +166,13 @@ test("readonly adapter rejects all write-oriented methods", async () => {
   ];
 
   await Promise.all(writeCalls.map((call) => assert.rejects(call, /Readonly viewer does not allow writes/)));
+});
+
+test("workspace Pages workflow is self-contained and does not use npm ci", () => {
+  const workflow = getWorkspaceDeployWorkflowYaml();
+  assert.match(workflow, /cp -R manifest\.json dist\/data\/manifest\.json/);
+  assert.match(workflow, /cp -R subjects dist\/data\//);
+  assert.match(workflow, /cp -R notes dist\/data\//);
+  assert.match(workflow, /cat > dist\/index\.html/);
+  assert.doesNotMatch(workflow, /npm ci/);
 });
