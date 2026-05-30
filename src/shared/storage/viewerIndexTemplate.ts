@@ -1,0 +1,99 @@
+export function getWorkspaceViewerIndexHtml() {
+  return `<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>godnote viewer</title>
+    <style>
+      :root { color-scheme: light; --bg:#f5efe6; --panel:rgba(255,250,242,.94); --line:rgba(62,45,28,.12); --ink:#2b241c; --muted:#6f5d48; --accent:#9a5b2f; --shadow:0 20px 60px rgba(60,39,17,.1); }
+      * { box-sizing: border-box; }
+      html, body { height: 100%; }
+      body { margin:0; color:var(--ink); background:linear-gradient(180deg,#faf4eb 0%,var(--bg) 100%); font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      .shell { min-height:100vh; display:grid; grid-template-rows:auto 1fr; }
+      .topbar { display:flex; justify-content:space-between; gap:16px; align-items:center; padding:18px 22px; background:rgba(251,247,241,.82); border-bottom:1px solid rgba(62,45,28,.08); backdrop-filter: blur(16px); }
+      .brand h1 { margin:0; font-family: Georgia, serif; font-size:1.55rem; line-height:1; }
+      .brand p { margin:4px 0 0; color:var(--muted); }
+      .badge { display:inline-flex; align-items:center; gap:8px; padding:8px 12px; border-radius:999px; background:rgba(154,91,47,.12); color:var(--accent); font-weight:600; }
+      .screen { min-height:0; padding:20px; }
+      .panel { min-height:0; height:100%; background:var(--panel); border:1px solid var(--line); border-radius:22px; box-shadow:var(--shadow); overflow:hidden; }
+      .home-screen { padding:24px; display:grid; gap:18px; align-content:start; }
+      .hero { padding:22px; border-radius:22px; border:1px solid rgba(62,45,28,.08); background:linear-gradient(135deg, rgba(255,255,255,.92), rgba(255,244,230,.92)); box-shadow:0 16px 40px rgba(60,39,17,.08); }
+      .hero h2 { margin:0 0 10px; font-family: Georgia, serif; font-size:clamp(2rem, 4vw, 3.4rem); line-height:1.05; }
+      .hero p { margin:0; color:var(--muted); line-height:1.7; max-width:60ch; }
+      .subject-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)); gap:16px; }
+      .subject-card, .note-card, .empty-card { border:1px solid rgba(62,45,28,.08); border-radius:18px; background:rgba(255,255,255,.86); padding:16px; display:grid; gap:12px; }
+      .subject-card h3, .empty-card h3 { margin:0; font-family:Georgia, serif; }
+      .subject-card button, .note-card button { width:100%; text-align:left; border:1px solid rgba(62,45,28,.08); border-radius:14px; background:white; padding:12px 14px; }
+      .subject-card button:hover, .note-card button:hover { border-color:rgba(154,91,47,.35); background:rgba(154,91,47,.06); }
+      .subject-meta, .note-meta, .summary, .empty, .card-meta { color:var(--muted); font-size:.93rem; line-height:1.55; }
+      .note-list { display:grid; grid-template-columns:repeat(auto-fit, minmax(260px, 1fr)); gap:14px; }
+      .subject-notes { display:grid; gap:12px; }
+      @media (max-width: 920px) {
+        .topbar { flex-direction:column; align-items:stretch; }
+        .screen { padding:12px; }
+        .home-screen { padding:16px; }
+        .subject-grid, .note-list { grid-template-columns:1fr; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <header class="topbar">
+        <div class="brand">
+          <h1>godnote viewer</h1>
+          <p>readonly static viewer. editing is disabled.</p>
+        </div>
+        <div class="badge">Home</div>
+      </header>
+      <main class="screen">
+        <section class="panel home-screen">
+          <section class="hero">
+            <h2>Home</h2>
+            <p>教科を選んでからノートを開く、アプリと同じ導線の readonly viewer です。スマホでも 1 列で見やすいようにしています。</p>
+          </section>
+          <div id="subject-grid" class="subject-grid"></div>
+          <div class="empty-card">
+            <h3>How to use</h3>
+            <p class="empty">教科を開くとノート一覧に進み、ノートを選ぶと表示画面の <code>viewer.html</code> に移動します。</p>
+          </div>
+        </section>
+      </main>
+    </div>
+    <script>
+      const dataRoot = './data';
+      const el = { grid: document.getElementById('subject-grid') };
+      const cache = new Map();
+      const noteCache = new Map();
+      const escapeHtml = (value) => String(value).replace(/[&<>"']/g, (char) => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[char]));
+      async function readJson(path) { if (!cache.has(path)) cache.set(path, fetch(path).then((response) => { if (!response.ok) throw new Error('Failed to load ' + path + ': ' + response.status); return response.json(); })); return cache.get(path); }
+      const loadManifest = () => readJson(dataRoot + '/manifest.json');
+      const loadSubject = (subjectId) => readJson(dataRoot + '/subjects/' + subjectId + '.json');
+      async function loadNote(subjectId, noteId) { const key = subjectId + ':' + noteId; if (!noteCache.has(key)) noteCache.set(key, readJson(dataRoot + '/notes/' + subjectId + '/' + noteId + '/note.json')); return noteCache.get(key); }
+      async function bootstrap() {
+        const manifest = await loadManifest();
+        const subjects = manifest.subjects ?? [];
+        const records = await Promise.all(subjects.map(async (subject) => [subject.id, await loadSubject(subject.id)]));
+        const subjectMap = new Map(records);
+        el.grid.innerHTML = subjects.map((subject) => {
+          const subjectData = subjectMap.get(subject.id);
+          const notes = subjectData?.notes ?? [];
+          return '<article class="subject-card"><h3>' + escapeHtml(subject.name) + '</h3><div class="subject-meta">' + notes.length + ' notes</div><div class="subject-notes">' + notes.map((note) => '<button type="button" data-open-note="' + subject.id + ':' + note.id + '"><strong>' + escapeHtml(note.title) + '</strong><div class="note-meta">Open viewer</div></button>').join('') + '</div></article>';
+        }).join('');
+        el.grid.querySelectorAll('[data-open-note]').forEach((button) => {
+          button.addEventListener('click', async () => {
+            const value = button.getAttribute('data-open-note');
+            if (!value) return;
+            const parts = value.split(':');
+            await loadNote(parts[0], parts[1]);
+            location.href = './viewer.html#/note/' + parts[0] + '/' + parts[1];
+          });
+        });
+      }
+      bootstrap().catch((error) => {
+        el.grid.innerHTML = '<div class="empty-card"><h3>Failed to load</h3><div class="error">' + escapeHtml(error instanceof Error ? error.message : String(error)) + '</div></div>';
+      });
+    </script>
+  </body>
+</html>`;
+}

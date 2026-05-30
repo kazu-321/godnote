@@ -173,6 +173,7 @@ test("workspace Pages workflow is self-contained and does not use npm ci", () =>
   assert.match(workflow, /cp -R manifest\.json dist\/data\/manifest\.json/);
   assert.match(workflow, /cp -R subjects dist\/data\//);
   assert.match(workflow, /cp -R notes dist\/data\//);
-  assert.match(workflow, /cat > dist\/index\.html/);
+  assert.match(workflow, /cp -R viewer\/index\.html dist\/index\.html/);
+  assert.match(workflow, /cp -R viewer\/viewer\.html dist\/viewer\.html/);
   assert.doesNotMatch(workflow, /npm ci/);
 });

@@ -80,7 +80,7 @@ export function WorkspaceLauncherPage({ recentWorkspace, onWorkspaceReady, onOpe
           ) : null}
         </div>
         <ul className="workspace-notes">
-          <li>作成時は `manifest.json`、`subjects/`、`notes/`、`.github/workflows/deploy-pages.yml` を生成します。</li>
+          <li>作成時は `manifest.json`、`subjects/`、`notes/`、`viewer/index.html`、`viewer/viewer.html`、`.github/workflows/deploy-pages.yml` を生成します。</li>
           <li>既存フォルダを開く場合は、`manifest.json` がある workspace だけを受け付けます。</li>
           <li>Git 管理はこの段階では行いません。ユーザー側で自由に管理できます。</li>
         </ul>

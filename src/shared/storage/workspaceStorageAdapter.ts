@@ -13,6 +13,8 @@ import type {
 } from "../../features/notes/model/noteTypes";
 import { manifestSchema, noteMetaSchema, noteSchema, subjectSchema } from "../../features/notes/model/noteSchemas";
 import type { StorageAdapter } from "./storageAdapter";
+import { getWorkspaceViewerIndexHtml } from "./viewerIndexTemplate";
+import { getWorkspaceViewerHtml } from "./viewerTemplate";
 
 const DEFAULT_APP_NAME = "godnote";
 const DEFAULT_APP_VERSION = "0.1.0";
@@ -119,7 +121,20 @@ function decodeBase64(base64: string) {
 async function ensureWorkspaceFolders(root: FileSystemDirectoryHandle) {
   await getDirectoryHandle(root, ["subjects"], true);
   await getDirectoryHandle(root, ["notes"], true);
+  await getDirectoryHandle(root, ["viewer"], true);
   await getDirectoryHandle(root, [".github", "workflows"], true);
+}
+
+async function ensureViewerFiles(root: FileSystemDirectoryHandle) {
+  const indexHandle = await getFileHandle(root, ["viewer", "index.html"], true);
+  const indexWritable = await indexHandle.createWritable();
+  await indexWritable.write(`${getWorkspaceViewerIndexHtml()}\n`);
+  await indexWritable.close();
+
+  const viewerHandle = await getFileHandle(root, ["viewer", "viewer.html"], true);
+  const viewerWritable = await viewerHandle.createWritable();
+  await viewerWritable.write(`${getWorkspaceViewerHtml()}\n`);
+  await viewerWritable.close();
 }
 
 function defaultManifest(): AppManifest {
@@ -154,131 +169,20 @@ export function getWorkspaceDeployWorkflowYaml() {
     "  build:",
     "    runs-on: ubuntu-latest",
     "    steps:",
-      "      - name: Checkout",
-        "        uses: actions/checkout@v4",
-      "      - name: Prepare viewer",
-        "        run: |",
-        "          rm -rf dist",
-        "          mkdir -p dist/data",
-        "          cp -R manifest.json dist/data/manifest.json",
-        "          cp -R subjects dist/data/",
-        "          cp -R notes dist/data/",
-        "          cat > dist/index.html <<'HTML'",
-        "<!doctype html>",
-        "<html lang=\"ja\">",
-        "  <head>",
-        "    <meta charset=\"UTF-8\" />",
-        "    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />",
-        "    <title>godnote viewer</title>",
-        "    <style>",
-        "      :root { color-scheme: light; }",
-        "      body { margin: 0; font-family: system-ui, sans-serif; background: #f5efe6; color: #2b241c; }",
-        "      main { width: min(1100px, calc(100vw - 32px)); margin: 0 auto; padding: 32px 0 80px; }",
-        "      .hero, .card { background: rgba(255, 250, 242, 0.92); border: 1px solid rgba(62, 45, 28, 0.12); border-radius: 20px; box-shadow: 0 20px 60px rgba(60, 39, 17, 0.1); }",
-        "      .hero { padding: 28px; margin-bottom: 24px; }",
-        "      .hero h1 { margin: 0; font-size: clamp(2rem, 6vw, 4rem); line-height: 1.05; }",
-        "      .lead { color: #6f5d48; line-height: 1.8; }",
-        "      .grid { display: grid; gap: 20px; grid-template-columns: 320px 1fr; }",
-        "      .card { padding: 20px; }",
-        "      .list { display: grid; gap: 8px; }",
-        "      button { width: 100%; text-align: left; border: 1px solid rgba(62, 45, 28, 0.12); border-radius: 14px; padding: 12px 14px; background: white; font: inherit; cursor: pointer; }",
-        "      button:hover { border-color: #9a5b2f; }",
-        "      .meta { color: #6f5d48; font-size: 0.94rem; }",
-        "      .note-content img { max-width: 100%; height: auto; display: block; margin: 10px 0; border-radius: 12px; }",
-        "      .note-content pre { white-space: pre-wrap; }",
-        "      @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }",
-        "    </style>",
-        "  </head>",
-        "  <body>",
-        "    <main>",
-        "      <section class=\"hero\">",
-        "        <p class=\"meta\">godnote viewer</p>",
-        "        <h1>workspace から生成される readonly viewer</h1>",
-        "        <p class=\"lead\">このページは workspace の manifest / subjects / notes をそのまま読み込み、GitHub Pages に公開するための静的ビューアです。</p>",
-        "      </section>",
-        "      <section class=\"grid\">",
-        "        <aside class=\"card\">",
-        "          <h2>Subjects</h2>",
-        "          <div id=\"subjects\" class=\"list\"></div>",
-        "        </aside>",
-        "        <section class=\"card\">",
-        "          <h2 id=\"note-title\">Note</h2>",
-        "          <div id=\"note-meta\" class=\"meta\"></div>",
-        "          <div id=\"note-content\" class=\"note-content\"></div>",
-        "        </section>",
-        "      </section>",
-        "    </main>",
-        "    <script>",
-        "      const dataRoot = './data';",
-        "      const subjectsEl = document.getElementById('subjects');",
-        "      const noteTitleEl = document.getElementById('note-title');",
-        "      const noteMetaEl = document.getElementById('note-meta');",
-        "      const noteContentEl = document.getElementById('note-content');",
-        "      const escapeHtml = (value) => String(value).replace(/[&<>\\\"]/g, (ch) => ({'&':'&amp;','<':'&lt;','>':'&gt;','\\\"':'&quot;'}[ch]));",
-        "      const readJson = async (path) => fetch(path).then((response) => { if (!response.ok) throw new Error(path + ' ' + response.status); return response.json(); });",
-        "      const noteCache = new Map();",
-        "      async function loadNote(subjectId, noteId) {",
-        "        const key = subjectId + ':' + noteId;",
-        "        if (!noteCache.has(key)) noteCache.set(key, readJson(`${dataRoot}/notes/${subjectId}/${noteId}/note.json`));",
-        "        return noteCache.get(key);",
-        "      }",
-        "      function renderNote(note, subjectName) {",
-        "        noteTitleEl.textContent = note.title || 'Note';",
-        "        noteMetaEl.textContent = `${subjectName} / ${note.title || note.id}`;",
-        "        const elements = [...(note.canvas?.elements ?? [])].sort((a, b) => (a.zIndex ?? 0) - (b.zIndex ?? 0));",
-        "        noteContentEl.innerHTML = elements.map((element) => {",
-        "          if (element.type === 'text') {",
-        "            return `<section><h3>Text</h3><pre>${escapeHtml(element.content)}</pre></section>`;",
-        "          }",
-        "          if (element.type === 'image') {",
-        "            const src = `${dataRoot}/notes/${note.subjectId}/${note.id}/${element.src}`;",
-        "            return `<section><h3>Image</h3><img src=\"${src}\" alt=\"${escapeHtml(element.originalFileName || element.id)}\" loading=\"lazy\" /></section>`;",
-        "          }",
-        "          return `<section><h3>${escapeHtml(element.type)}</h3><pre>${escapeHtml(JSON.stringify(element, null, 2))}</pre></section>`;",
-        "        }).join('') || '<p class=\"meta\">No elements</p>';",
-        "      }",
-        "      async function bootstrap() {",
-        "        const manifest = await readJson(`${dataRoot}/manifest.json`);",
-        "        const subjects = manifest.subjects ?? [];",
-        "        subjectsEl.innerHTML = '';",
-        "        for (const subject of subjects) {",
-        "          const subjectData = await readJson(`${dataRoot}/${subject.path}`);",
-        "          const button = document.createElement('button');",
-        "          button.type = 'button';",
-        "          button.innerHTML = `<strong>${escapeHtml(subject.name)}</strong><div class=\"meta\">${subjectData.noteOrder.length} notes</div>`;",
-        "          button.addEventListener('click', async () => {",
-        "            const noteId = subjectData.noteOrder[0] || subjectData.notes[0]?.id;",
-        "            if (!noteId) {",
-        "              noteTitleEl.textContent = subject.name;",
-        "              noteMetaEl.textContent = 'No notes in this subject.';",
-        "              noteContentEl.innerHTML = '<p class=\"meta\">No notes</p>';",
-        "              return;",
-        "            }",
-        "            const note = await loadNote(subject.id, noteId);",
-        "            renderNote(note, subject.name);",
-        "          });",
-        "          subjectsEl.appendChild(button);",
-        "        }",
-        "        const first = subjects[0];",
-        "        if (first) {",
-        "          const subjectData = await readJson(`${dataRoot}/${first.path}`);",
-        "          const noteId = subjectData.noteOrder[0] || subjectData.notes[0]?.id;",
-        "          if (noteId) renderNote(await loadNote(first.id, noteId), first.name);",
-        "          else { noteTitleEl.textContent = first.name; noteMetaEl.textContent = 'No notes in this subject.'; noteContentEl.innerHTML = '<p class=\"meta\">No notes</p>'; }",
-        "        }",
-        "      }",
-        "      bootstrap().catch((error) => {",
-        "        noteTitleEl.textContent = 'Failed to load';",
-        "        noteMetaEl.textContent = String(error);",
-        "        noteContentEl.innerHTML = '<p class=\"meta\">Check the console for details.</p>';",
-        "      });",
-        "    </script>",
-        "  </body>",
-        "</html>",
-        "HTML",
-      "      - name: Upload Pages artifact",
-        "        uses: actions/upload-pages-artifact@v3",
-        "        with:",
+    "      - name: Checkout",
+    "        uses: actions/checkout@v4",
+    "      - name: Prepare viewer",
+    "        run: |",
+    "          rm -rf dist",
+    "          mkdir -p dist/data",
+    "          cp -R manifest.json dist/data/manifest.json",
+    "          cp -R subjects dist/data/",
+    "          cp -R notes dist/data/",
+    "          cp -R viewer/index.html dist/index.html",
+    "          cp -R viewer/viewer.html dist/viewer.html",
+    "      - name: Upload Pages artifact",
+    "        uses: actions/upload-pages-artifact@v3",
+    "        with:",
     "          path: dist",
     "",
     "  deploy:",
@@ -315,6 +219,7 @@ async function ensureWorkspaceShape(root: FileSystemDirectoryHandle, options: { 
   if (!manifestExists) {
     await writeJson(root, "manifest.json", defaultManifest());
   }
+  await ensureViewerFiles(root);
   await ensureWorkflowFile(root);
 }
 
