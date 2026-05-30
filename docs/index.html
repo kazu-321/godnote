@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>godnote</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="page">
+      <section class="hero card">
+        <p class="eyebrow">godnote</p>
+        <h1>ワークスペースで動くローカルファーストノートアプリ</h1>
+        <p class="lead">
+          `godnote` は、ユーザーが選んだフォルダをそのままデータの正本にするノートアプリです。
+          デスクトップ版で編集し、GitHub Pages は説明と使い方のドキュメントサイトとして公開します。
+        </p>
+        <div class="actions">
+          <a class="button primary" href="#start">はじめかた</a>
+          <a class="button" href="#concept">考え方</a>
+          <a class="button" href="#roadmap">今後の方針</a>
+        </div>
+      </section>
+
+      <section id="concept" class="grid two-up">
+        <article class="card">
+          <h2>何をするアプリか</h2>
+          <ul>
+            <li>ワークスペースを作成して、そこにノートデータを保存する</li>
+            <li>ワークスペースを開いて、既存データを編集する</li>
+            <li>画像や PDF を PNG に変換してノートに保存する</li>
+            <li>将来的には Electron 化して OS ごとの standalone アプリにする</li>
+          </ul>
+        </article>
+
+        <article class="card">
+          <h2>GitHub Pages の役割</h2>
+          <ul>
+            <li>アプリ本体は置かない</li>
+            <li>使い方と考え方を説明する</li>
+            <li>開発中の前提や今後の方針をまとめる</li>
+            <li>デスクトップ版への導線を案内する</li>
+          </ul>
+        </article>
+      </section>
+
+      <section id="start" class="card">
+        <h2>はじめかた</h2>
+        <ol>
+          <li>デスクトップ版 `godnote` を起動する</li>
+          <li>Home で「ワークスペースを作成」または「ワークスペースを開く」を選ぶ</li>
+          <li>作った workspace の中に `manifest.json`、`subjects/`、`notes/` ができる</li>
+          <li>ノートを編集すると、画像は workspace 内の `assets/images/` に保存される</li>
+        </ol>
+      </section>
+
+      <section class="grid two-up">
+        <article class="card">
+          <h2>ワークスペースの構成</h2>
+          <pre><code>&lt;workspace&gt;/
+├── manifest.json
+├── subjects/
+├── notes/
+└── .github/workflows/deploy-pages.yml</code></pre>
+        </article>
+
+        <article class="card">
+          <h2>現在の方針</h2>
+          <ul>
+            <li>Git 管理はユーザーに任せる</li>
+            <li>GitHub Pages は説明サイトにする</li>
+            <li>sample data は最小限に保つ</li>
+            <li>次の大きな工程は Electron 化</li>
+          </ul>
+        </article>
+      </section>
+
+      <section id="roadmap" class="card">
+        <h2>今後の方針</h2>
+        <ol>
+          <li>デスクトップ版のワークスペース編集を安定させる</li>
+          <li>GitHub Pages の説明サイトを整える</li>
+          <li>Electron に移して standalone 配布へ進める</li>
+          <li>OS ごとのビルドを整える</li>
+        </ol>
+      </section>
+    </main>
+  </body>
+</html>

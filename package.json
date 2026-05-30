@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "build:docs": "tsx scripts/build-docs.ts",
     "preview": "vite preview",
     "server": "tsx server/index.ts",
     "test": "node --import tsx --test tests/*.test.ts",

@@ -6,7 +6,7 @@
 
 ## What This Repo Is
 
-`godnote` is a local-first note app built around a user-chosen workspace folder.
+`godnote` is a local-first note app with a workspace-based data model.
 
 Current runtime targets:
 
@@ -16,19 +16,18 @@ Current runtime targets:
    - Opens a workspace folder and reads/writes that workspace directly.
    - Remembers the last opened workspace as a convenience.
 
-2. Static readonly viewer
-   - Generated from a workspace into a static site.
-   - Readonly only.
-   - No workspace chooser UI.
-   - Intended for GitHub Pages.
+2. GitHub Pages documentation site
+   - Static site built from `docs/`.
+   - Explains what the app is and how to use it.
+   - Does not run the app itself.
+   - Does not expose workspace editing UI.
 
-The repo uses the same frontend codebase for both targets, but there is no user-facing mode toggle anymore.
+The same frontend codebase is still used for the desktop editor. GitHub Pages is now documentation only.
 
 ## Current Source Of Truth
 
 - Editable data lives in the opened workspace root.
 - The repository keeps only minimal sample workspace data for tests and validation.
-- Repository sample data is intentionally minimal.
 - `sample_workspace/manifest.json` is the only sample data kept in-repo right now.
 - Sample subjects and sample notes should not be added back unless there is a strong reason.
 
@@ -37,18 +36,19 @@ The repo uses the same frontend codebase for both targets, but there is no user-
 - Keep workspace creation and workspace opening as separate actions.
 - Keep Git management manual for now.
 - The app may generate a GitHub Pages workflow inside a workspace.
+- GitHub Pages for this repo should stay a documentation site.
 - The next big step is Electron packaging.
 - The eventual packaged app should produce OS-specific builds, not one cross-OS binary.
 
 ## Important Rules
 
-- Do not reintroduce an old split between editor data and viewer data.
+- Do not reintroduce the old `public/data` repository layout.
 - Do not reintroduce the old user-facing app mode toggle.
 - Keep sample data to the minimum needed for tests and validation.
 - Keep the workspace flow simple and safe.
 - Save failures must remain visible in the UI.
 - Desktop editing is the main target.
-- The static viewer must stay readonly.
+- GitHub Pages must stay docs-only.
 
 ## Data Layout
 
@@ -58,16 +58,9 @@ Workspace data shape:
 <workspace>/
 ├── manifest.json
 ├── subjects/
-└── notes/
+├── notes/
+└── .github/workflows/deploy-pages.yml
 ```
-
-The workspace may also contain:
-
-```txt
-<workspace>/.github/workflows/deploy-pages.yml
-```
-
-The static viewer is generated from workspace data into `dist/data/` during build.
 
 ## Code Areas To Know
 
@@ -90,14 +83,13 @@ The static viewer is generated from workspace data into `dist/data/` during buil
 - `src/shared/storage/`
   - storage adapters
   - workspace persistence
-  - readonly viewer reads
   - recent workspace persistence
 
 - `server/`
   - local API server for workspace-backed writes
   - path helpers and JSON write utilities
 
-- `workspaceStorageAdapter`
+- `src/shared/storage/workspaceStorageAdapter.ts`
   - workspace initialization
   - workflow generation
   - file-system access through the browser File System Access API
@@ -109,16 +101,17 @@ Use these checks when changing app behavior:
 - `npm run typecheck`
 - `npm test`
 - `npm run build`
+- `npm run build:docs`
 
-For data-shape changes, also keep `sample_workspace/manifest.json` and the tests in sync.
+For data-shape changes, keep `sample_workspace/manifest.json` and the tests in sync.
 
 ## Near-Term Roadmap
 
 1. Finish the desktop workspace flow.
-2. Keep the repo sample data minimal.
-3. Rename the repository cleanly when the new project name is finalized.
+2. Keep sample data minimal.
+3. Rename the repository cleanly when the project name is finalized.
 4. Move the desktop app to Electron.
-5. Separate desktop packaging from the generated readonly viewer.
+5. Keep GitHub Pages as documentation only.
 
 ## Notes For Future Work
 
