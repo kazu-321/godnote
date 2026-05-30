@@ -202,7 +202,7 @@
       const cache = new Map();
       const escapeHtml = (value) => String(value).replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
       function parseHash() {
-        const raw = location.hash.replace(/^#/?/, '');
+        const raw = location.hash.replace(/^#\/?/, '');
         if (!raw) return { subjectId: null, noteId: null };
         const parts = raw.split('/').filter(Boolean);
         if (parts[0] === 'note') return { subjectId: parts[1] ?? null, noteId: parts[2] ?? null };
