@@ -15,4 +15,11 @@ declare module "pdfjs-dist/build/pdf.mjs" {
 
 interface Window {
   showDirectoryPicker(options?: { mode?: "read" | "readwrite" }): Promise<FileSystemDirectoryHandle>;
+  godnote?: {
+    isElectron: true;
+    pickWorkspaceDirectory: () => Promise<string | null>;
+    getLastWorkspace: () => Promise<{ name: string; path: string; updatedAt: string } | null>;
+    getRecentWorkspaces: () => Promise<Array<{ name: string; path: string; updatedAt: string }>>;
+    saveRecentWorkspace: (record: { name: string; path: string }) => Promise<{ name: string; path: string; updatedAt: string }>;
+  };
 }

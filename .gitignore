@@ -1,5 +1,7 @@
 node_modules/
 dist/
+dist-server/
+release/
 
 .DS_Store
 Thumbs.db
@@ -9,6 +11,7 @@ Thumbs.db
 
 # Local runner state (pids/logs)
 .mynote/
+.godnote/
 
 .idea/
 .vscode/

@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { noteAssetPath } from "../utils/paths";
+import { noteAssetPath } from "../utils/paths.js";
 
 function isMissingFile(error: unknown) {
   return error instanceof Error && (error as NodeJS.ErrnoException).code === "ENOENT";

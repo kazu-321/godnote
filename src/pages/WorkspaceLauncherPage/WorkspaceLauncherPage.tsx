@@ -1,33 +1,39 @@
 import { useState } from "react";
 import type { StorageAdapter } from "../../shared/storage/storageAdapter";
-import { createWorkspaceStorageAdapter, openWorkspaceStorageAdapter } from "../../shared/storage/workspaceStorageAdapter";
 import type { RecentWorkspaceRecord } from "../../shared/storage/recentWorkspaceStore";
+import { createWorkspaceFromPicker, openWorkspaceFromPicker } from "../../shared/storage/workspaceRuntime";
 
 type WorkspaceLauncherPageProps = {
   recentWorkspace: RecentWorkspaceRecord | null;
-  onWorkspaceReady: (storage: StorageAdapter, workspaceName: string, root: FileSystemDirectoryHandle) => Promise<void>;
+  savedWorkspaces: RecentWorkspaceRecord[];
+  showSavedWorkspaces: boolean;
+  onWorkspaceReady: (
+    storage: StorageAdapter,
+    workspaceName: string,
+    identity?: { handle?: FileSystemDirectoryHandle; path?: string },
+  ) => Promise<void>;
   onOpenRecentWorkspace: () => Promise<void>;
+  onOpenSavedWorkspace: (workspace: RecentWorkspaceRecord) => Promise<void>;
 };
 
-async function pickWorkspaceDirectory() {
-  if (!("showDirectoryPicker" in window)) {
-    throw new Error("This browser does not support folder picking.");
-  }
-  return window.showDirectoryPicker({ mode: "readwrite" });
-}
-
-export function WorkspaceLauncherPage({ recentWorkspace, onWorkspaceReady, onOpenRecentWorkspace }: WorkspaceLauncherPageProps) {
+export function WorkspaceLauncherPage({ recentWorkspace, savedWorkspaces, showSavedWorkspaces, onWorkspaceReady, onOpenRecentWorkspace, onOpenSavedWorkspace }: WorkspaceLauncherPageProps) {
   const [busy, setBusy] = useState<"create" | "open" | "recent" | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const visibleSavedWorkspaces = showSavedWorkspaces ? savedWorkspaces : [];
 
   async function handleCreateWorkspace() {
     setBusy("create");
     setError(null);
     try {
-      const root = await pickWorkspaceDirectory();
-      const storage = await createWorkspaceStorageAdapter(root);
-      await onWorkspaceReady(storage, root.name, root);
+      const opened = await createWorkspaceFromPicker();
+      await onWorkspaceReady(opened.storage, opened.name, {
+        handle: opened.handle,
+        path: opened.path,
+      });
     } catch (nextError) {
+      if (nextError instanceof Error && nextError.message === "Workspace selection was cancelled.") {
+        return;
+      }
       setError(nextError instanceof Error ? nextError.message : String(nextError));
     } finally {
       setBusy(null);
@@ -38,10 +44,15 @@ export function WorkspaceLauncherPage({ recentWorkspace, onWorkspaceReady, onOpe
     setBusy("open");
     setError(null);
     try {
-      const root = await pickWorkspaceDirectory();
-      const storage = await openWorkspaceStorageAdapter(root);
-      await onWorkspaceReady(storage, root.name, root);
+      const opened = await openWorkspaceFromPicker();
+      await onWorkspaceReady(opened.storage, opened.name, {
+        handle: opened.handle,
+        path: opened.path,
+      });
     } catch (nextError) {
+      if (nextError instanceof Error && nextError.message === "Workspace selection was cancelled.") {
+        return;
+      }
       setError(nextError instanceof Error ? nextError.message : String(nextError));
     } finally {
       setBusy(null);
@@ -53,6 +64,18 @@ export function WorkspaceLauncherPage({ recentWorkspace, onWorkspaceReady, onOpe
     setError(null);
     try {
       await onOpenRecentWorkspace();
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : String(nextError));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function handleOpenSavedWorkspace(workspace: RecentWorkspaceRecord) {
+    setBusy("recent");
+    setError(null);
+    try {
+      await onOpenSavedWorkspace(workspace);
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : String(nextError));
     } finally {
@@ -84,6 +107,23 @@ export function WorkspaceLauncherPage({ recentWorkspace, onWorkspaceReady, onOpe
           <li>既存フォルダを開く場合は、`manifest.json` がある workspace だけを受け付けます。</li>
           <li>Git 管理はこの段階では行いません。ユーザー側で自由に管理できます。</li>
         </ul>
+        {showSavedWorkspaces ? (
+          <section className="saved-workspaces">
+            <h2>保存済み workspace</h2>
+            {visibleSavedWorkspaces.length > 0 ? (
+              <div className="saved-workspace-list">
+                {visibleSavedWorkspaces.map((workspace) => (
+                  <button key={`${workspace.path ?? workspace.name}-${workspace.updatedAt}`} type="button" className="workspace-entry" onClick={() => void handleOpenSavedWorkspace(workspace)} disabled={busy !== null}>
+                    <strong>{workspace.name}</strong>
+                    <span>最終更新 {new Date(workspace.updatedAt).toLocaleString()}</span>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <p className="workspace-notes">まだ保存済み workspace はありません。</p>
+            )}
+          </section>
+        ) : null}
         {error ? <p className="error">{error}</p> : null}
       </section>
     </main>

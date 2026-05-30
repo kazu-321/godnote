@@ -2154,8 +2154,8 @@ export function NoteEditorPage(props: { subjectId: string; noteId: string; stora
                 >
                 {element.type === "text" ? (
                   <RenderedText content={element.content} style={textContentStyle(element)} />
-                ) : element.type === "image" ? (
-                  <img src={assetUrl ?? ""} alt={element.originalFileName ?? element.id} draggable={false} />
+              ) : element.type === "image" ? (
+                  assetUrl ? <img src={assetUrl} alt={element.originalFileName ?? element.id} draggable={false} /> : null
                 ) : element.type === "line" ? (
                   <svg className="canvas-element-svg" viewBox={`0 0 ${Math.max(1, element.width)} ${Math.max(1, element.height)}`} preserveAspectRatio="none" aria-hidden="true">
                     <line

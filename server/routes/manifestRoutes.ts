@@ -1,6 +1,6 @@
 import { Router } from "express";
-import { manifestPath } from "../utils/paths";
-import { readJsonFile, writeJsonFile } from "../utils/json";
+import { manifestPath } from "../utils/paths.js";
+import { readJsonFile, writeJsonFile } from "../utils/json.js";
 
 export const manifestRoutes = Router()
   .get("/", async (_req, res, next) => {

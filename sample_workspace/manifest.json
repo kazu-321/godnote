@@ -3,13 +3,19 @@
   "appName": "godnote",
   "appVersion": "0.1.0",
   "subjectOrder": [
-    "3bcf9c4b-9908-4a7e-af35-e9643022887e"
+    "3bcf9c4b-9908-4a7e-af35-e9643022887e",
+    "f713444f-f19d-4327-ad41-e7e180787ec2"
   ],
   "subjects": [
     {
       "id": "3bcf9c4b-9908-4a7e-af35-e9643022887e",
       "name": "テスト科目",
       "path": "subjects/3bcf9c4b-9908-4a7e-af35-e9643022887e.json"
+    },
+    {
+      "id": "f713444f-f19d-4327-ad41-e7e180787ec2",
+      "name": "test",
+      "path": "subjects/f713444f-f19d-4327-ad41-e7e180787ec2.json"
     }
   ]
 }

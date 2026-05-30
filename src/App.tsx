@@ -12,8 +12,15 @@ import { navigateHome, navigateToNote, readRouteState } from "./app/router";
 import { NoteEditorPage } from "./pages/NoteEditorPage/NoteEditorPage";
 import { WorkspaceLauncherPage } from "./pages/WorkspaceLauncherPage/WorkspaceLauncherPage";
 import { StaticReadonlyStorageAdapter } from "./shared/storage/staticReadonlyStorageAdapter";
-import { loadRecentWorkspace, saveRecentWorkspace, type RecentWorkspaceRecord } from "./shared/storage/recentWorkspaceStore";
+import type { RecentWorkspaceRecord } from "./shared/storage/recentWorkspaceStore";
+import {
+  loadStoredRecentWorkspace,
+  loadStoredRecentWorkspaces,
+  persistRecentWorkspace,
+  restoreStoredWorkspace,
+} from "./shared/storage/workspaceRuntime";
 import { openWorkspaceStorageAdapter } from "./shared/storage/workspaceStorageAdapter";
+import { isElectronRuntime } from "./app/electronBridge";
 
 type DragKind = "subject" | "note";
 type SubjectDropTarget = string | "__end__" | null;
@@ -30,7 +37,9 @@ type DragState = { kind: DragKind; subjectId: string; noteId?: string } | null;
 type WorkspacePhase = "booting" | "launcher" | "ready";
 
 function isMissingFileError(error: unknown) {
-  return error instanceof Error && (error.message.includes("ENOENT") || error.message.includes("404"));
+  if (!(error instanceof Error)) return false;
+  if (error.name === "NotFoundError") return true;
+  return error.message.includes("ENOENT") || error.message.includes("404") || error.message.includes("could not be found");
 }
 
 export default function App() {
@@ -39,6 +48,7 @@ export default function App() {
   const [workspacePhase, setWorkspacePhase] = useState<WorkspacePhase>(() => (isViewerBuild ? "ready" : "booting"));
   const [workspaceName, setWorkspaceName] = useState<string | null>(null);
   const [recentWorkspace, setRecentWorkspace] = useState<RecentWorkspaceRecord | null>(null);
+  const [savedWorkspaces, setSavedWorkspaces] = useState<RecentWorkspaceRecord[]>([]);
   const [manifest, setManifest] = useState<AppManifest | null>(null);
   const [subjects, setSubjects] = useState<Record<string, SubjectData>>({});
   const [notes, setNotes] = useState<Record<string, NoteMeta>>({});
@@ -49,6 +59,7 @@ export default function App() {
   const [dragState, setDragState] = useState<DragState>(null);
   const [subjectDropTarget, setSubjectDropTarget] = useState<SubjectDropTarget>(null);
   const [noteDropTarget, setNoteDropTarget] = useState<NoteDropTarget>(null);
+  const [workspaceSwitcherOpen, setWorkspaceSwitcherOpen] = useState(false);
 
   const route = useMemo(() => readRouteState(), [routeTick]);
   const canEdit = !isViewerBuild;
@@ -65,26 +76,19 @@ export default function App() {
 
     async function restoreLastWorkspace() {
       try {
-        const lastWorkspace = await loadRecentWorkspace();
+        const lastWorkspace = await loadStoredRecentWorkspace();
+        const workspaceHistory = await loadStoredRecentWorkspaces();
         if (cancelled) return;
         setRecentWorkspace(lastWorkspace);
+        setSavedWorkspaces(workspaceHistory);
         if (!lastWorkspace) {
           setWorkspacePhase("launcher");
           return;
         }
-        const accessHandle = lastWorkspace.handle as FileSystemDirectoryHandle & {
-          queryPermission?: (options: { mode: "readwrite" }) => Promise<PermissionState>;
-        };
-        const permission = await accessHandle.queryPermission?.({ mode: "readwrite" });
+        const opened = await restoreStoredWorkspace(lastWorkspace);
         if (cancelled) return;
-        if (permission !== "granted") {
-          setWorkspacePhase("launcher");
-          return;
-        }
-        const nextStorage = await openWorkspaceStorageAdapter(lastWorkspace.handle);
-        if (cancelled) return;
-        setStorage(nextStorage);
-        setWorkspaceName(lastWorkspace.name);
+        setStorage(opened.storage);
+        setWorkspaceName(opened.name);
         setWorkspacePhase("ready");
       } catch (err) {
         if (cancelled) return;
@@ -284,14 +288,29 @@ export default function App() {
     closeDialog();
   }
 
-  async function handleWorkspaceReady(nextStorage: StorageAdapter, nextWorkspaceName: string, root: FileSystemDirectoryHandle) {
+  async function handleWorkspaceReady(
+    nextStorage: StorageAdapter,
+    nextWorkspaceName: string,
+    identity: { handle?: FileSystemDirectoryHandle; path?: string } = {},
+  ) {
+    setManifest(null);
+    setSubjects({});
+    setNotes({});
+    setOpenSubjectId(null);
+    setError(null);
+    navigateHome();
     setStorage(nextStorage);
     setWorkspaceName(nextWorkspaceName);
     setWorkspacePhase("ready");
-    setRecentWorkspace({ name: nextWorkspaceName, handle: root, updatedAt: new Date().toISOString() });
     try {
-      const savedRecentWorkspace = await saveRecentWorkspace({ name: nextWorkspaceName, handle: root });
+      const savedRecentWorkspace = await persistRecentWorkspace({
+        name: nextWorkspaceName,
+        handle: identity.handle,
+        path: identity.path,
+      });
       setRecentWorkspace(savedRecentWorkspace);
+      setSavedWorkspaces(await loadStoredRecentWorkspaces());
+      setWorkspaceSwitcherOpen(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
@@ -317,8 +336,46 @@ export default function App() {
     if (!recentWorkspace) {
       throw new Error("直前の workspace が見つかりません。");
     }
-    const nextStorage = await openWorkspaceStorageAdapter(recentWorkspace.handle);
-    await handleWorkspaceReady(nextStorage, recentWorkspace.name, recentWorkspace.handle);
+    const opened = await restoreStoredWorkspace(recentWorkspace);
+    await handleWorkspaceReady(opened.storage, opened.name, {
+      handle: opened.handle,
+      path: opened.path,
+    });
+  }
+
+  async function openSavedWorkspace(workspace: RecentWorkspaceRecord) {
+    try {
+      if (isElectronRuntime()) {
+        const opened = await restoreStoredWorkspace(workspace);
+        await handleWorkspaceReady(opened.storage, opened.name, { path: opened.path });
+        return;
+      }
+      const accessHandle = workspace.handle as FileSystemDirectoryHandle & {
+        queryPermission?: (options: { mode: "readwrite" }) => Promise<PermissionState>;
+        requestPermission?: (options: { mode: "readwrite" }) => Promise<PermissionState>;
+      };
+      const permission = await accessHandle.queryPermission?.({ mode: "readwrite" });
+      if (permission !== "granted") {
+        const requested = await accessHandle.requestPermission?.({ mode: "readwrite" });
+        if (requested !== "granted") {
+          throw new Error("選択した workspace の権限がありません。もう一度開き直してください。");
+        }
+      }
+      const nextStorage = await openWorkspaceStorageAdapter(workspace.handle!);
+      await handleWorkspaceReady(nextStorage, workspace.name, { handle: workspace.handle });
+    } catch (error) {
+      setSavedWorkspaces((current) => current.filter((item) => item.name !== workspace.name || item.updatedAt !== workspace.updatedAt));
+      throw error;
+    }
+  }
+
+  async function openWorkspaceSwitcher() {
+    setSavedWorkspaces(await loadStoredRecentWorkspaces());
+    setWorkspaceSwitcherOpen(true);
+  }
+
+  function closeWorkspaceSwitcher() {
+    setWorkspaceSwitcherOpen(false);
   }
 
   function startDrag(kind: DragKind, subjectId: string, noteId?: string, event?: DragEvent<HTMLButtonElement>) {
@@ -378,14 +435,23 @@ export default function App() {
         <section className="panel workspace-launcher">
           <div className="eyebrow">godnote</div>
           <h1>Home</h1>
-          <p>直前の workspace を確認しています。</p>
+          <p>直前の workspace を開いています。</p>
         </section>
       </main>
     );
   }
 
   if (!isViewerBuild && workspacePhase === "launcher") {
-    return <WorkspaceLauncherPage recentWorkspace={recentWorkspace} onWorkspaceReady={handleWorkspaceReady} onOpenRecentWorkspace={openRecentWorkspace} />;
+    return (
+      <WorkspaceLauncherPage
+        recentWorkspace={recentWorkspace}
+        savedWorkspaces={savedWorkspaces}
+        showSavedWorkspaces={false}
+        onWorkspaceReady={handleWorkspaceReady}
+        onOpenRecentWorkspace={openRecentWorkspace}
+        onOpenSavedWorkspace={openSavedWorkspace}
+      />
+    );
   }
 
   if (!storage) {
@@ -405,7 +471,7 @@ export default function App() {
         {canEdit ? (
           <div className="actions">
             <IconButton label="教科を追加" icon="+" onClick={() => openDialog({ kind: "create-subject" })} />
-            {!isViewerBuild ? <IconButton label="ワークスペースを切り替える" icon="↻" onClick={closeWorkspaceLauncher} /> : null}
+            {!isViewerBuild ? <IconButton label="ワークスペースを切り替える" icon="↻" onClick={() => void openWorkspaceSwitcher()} /> : null}
           </div>
         ) : (
           <p className="muted">閲覧専用</p>
@@ -623,6 +689,16 @@ export default function App() {
         )}
       </section>
 
+      <Modal open={workspaceSwitcherOpen} title="ワークスペースを切り替える" onClose={closeWorkspaceSwitcher}>
+        <WorkspaceLauncherPage
+          recentWorkspace={recentWorkspace}
+          savedWorkspaces={savedWorkspaces}
+          showSavedWorkspaces
+          onWorkspaceReady={handleWorkspaceReady}
+          onOpenRecentWorkspace={openRecentWorkspace}
+          onOpenSavedWorkspace={openSavedWorkspace}
+        />
+      </Modal>
       <Modal open={dialog !== null} title="入力" onClose={closeDialog}>
         {dialog?.kind === "confirm-delete" ? (
           <div className="modal-actions">

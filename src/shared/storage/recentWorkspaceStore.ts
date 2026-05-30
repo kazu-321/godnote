@@ -1,11 +1,13 @@
 const DB_NAME = "godnote";
-const DB_VERSION = 1;
-const STORE_NAME = "recent-workspace";
-const RECENT_WORKSPACE_KEY = "last";
+const DB_VERSION = 2;
+const STORE_NAME = "recent-workspaces";
+const LAST_KEY = "last";
+const LIST_KEY = "list";
 
 export type RecentWorkspaceRecord = {
   name: string;
-  handle: FileSystemDirectoryHandle;
+  handle?: FileSystemDirectoryHandle;
+  path?: string;
   updatedAt: string;
 };
 
@@ -66,15 +68,60 @@ async function withStore<T>(mode: IDBTransactionMode, run: (store: IDBObjectStor
   });
 }
 
+async function readRecords(key: string) {
+  return withStore<RecentWorkspaceRecord[] | null>("readonly", (store) => {
+    const request = store.get(key) as IDBRequest<RecentWorkspaceRecord[] | undefined>;
+    return new Promise<RecentWorkspaceRecord[] | null>((resolve, reject) => {
+      request.onsuccess = () => resolve(request.result ?? null);
+      request.onerror = () => reject(request.error ?? new Error("Failed to read recent workspace."));
+    });
+  });
+}
+
+async function writeValue<T>(key: string, value: T) {
+  await withStore("readwrite", (store) => store.put(value, key));
+}
+
+async function writeRecords(key: string, records: RecentWorkspaceRecord[]) {
+  await withStore("readwrite", (store) => store.put(records, key));
+}
+
+async function sameWorkspace(a: RecentWorkspaceRecord, b: RecentWorkspaceRecord) {
+  if (a.path && b.path) {
+    return a.path === b.path;
+  }
+  if (!a.handle || !b.handle) {
+    return false;
+  }
+  const handle = a.handle as FileSystemDirectoryHandle & {
+    isSameEntry?: (other: FileSystemHandle) => Promise<boolean>;
+  };
+  try {
+    return Boolean(await handle.isSameEntry?.(b.handle));
+  } catch {
+    return false;
+  }
+}
+
 export async function saveRecentWorkspace(record: Omit<RecentWorkspaceRecord, "updatedAt">) {
+  if (!record.handle) {
+    throw new Error("Workspace handle is required.");
+  }
   const nextRecord: RecentWorkspaceRecord = { ...record, updatedAt: new Date().toISOString() };
-  await withStore("readwrite", (store) => store.put(nextRecord, RECENT_WORKSPACE_KEY));
+  const existing = (await readRecords(LIST_KEY)) ?? [];
+  const nextList: RecentWorkspaceRecord[] = [nextRecord];
+  for (const current of existing) {
+    if (await sameWorkspace(current, nextRecord)) continue;
+    nextList.push(current);
+  }
+  await writeRecords(LIST_KEY, nextList);
+  await writeValue(LAST_KEY, nextRecord);
   return nextRecord;
 }
 
 export async function loadRecentWorkspace() {
   return withStore<RecentWorkspaceRecord | null>("readonly", (store) => {
-    const request = store.get(RECENT_WORKSPACE_KEY) as IDBRequest<RecentWorkspaceRecord | undefined>;
+    const request = store.get(LAST_KEY) as IDBRequest<RecentWorkspaceRecord | undefined>;
     return new Promise<RecentWorkspaceRecord | null>((resolve, reject) => {
       request.onsuccess = () => resolve(request.result ?? null);
       request.onerror = () => reject(request.error ?? new Error("Failed to read recent workspace."));
@@ -82,6 +129,11 @@ export async function loadRecentWorkspace() {
   });
 }
 
+export async function loadRecentWorkspaces() {
+  return (await readRecords(LIST_KEY)) ?? [];
+}
+
 export async function clearRecentWorkspace() {
-  await withStore("readwrite", (store) => store.delete(RECENT_WORKSPACE_KEY));
+  await withStore("readwrite", (store) => store.delete(LAST_KEY));
+  await withStore("readwrite", (store) => store.delete(LIST_KEY));
 }

@@ -8,8 +8,8 @@
   "canvas": {
     "type": "infinite",
     "viewport": {
-      "x": 0,
-      "y": 0,
+      "x": -364,
+      "y": 86,
       "scale": 1
     },
     "grid": {

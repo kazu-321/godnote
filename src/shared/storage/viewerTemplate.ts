@@ -114,14 +114,91 @@ const VIEWER_HTML = `<!doctype html>
       .element.text .surface {
         width: 100%;
         height: 100%;
-        padding: 12px 14px;
         border-radius: 16px;
         background: rgba(255, 255, 255, 0.96);
         border: 1px solid rgba(62, 45, 28, 0.1);
         box-shadow: 0 10px 24px rgba(60, 39, 17, 0.08);
-        white-space: pre-wrap;
         overflow: hidden;
         line-height: 1.65;
+      }
+      .text-render {
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        color: inherit;
+      }
+      .text-render.plain {
+        white-space: pre-wrap;
+      }
+      .text-render.markdown,
+      .text-render.markdown-tex,
+      .text-render.tex {
+        font-size: 0.98em;
+      }
+      .text-render p {
+        margin: 0 0 0.5em;
+      }
+      .text-render p:last-child {
+        margin-bottom: 0;
+      }
+      .text-render ul,
+      .text-render ol {
+        margin: 0 0 0.5em 1.2em;
+        padding-left: 1.2em;
+      }
+      .text-render li + li {
+        margin-top: 0.25em;
+      }
+      .text-render a {
+        color: var(--accent);
+      }
+      .text-render code {
+        padding: 0 0.3em;
+        border-radius: 6px;
+        background: rgba(62, 45, 28, 0.08);
+      }
+      .text-render .tex-inline {
+        display: inline-block;
+        vertical-align: middle;
+      }
+      .text-render .tex-block {
+        display: block;
+        margin: 0.35em 0;
+      }
+      .text-render .tex-frac {
+        display: inline-flex;
+        flex-direction: column;
+        align-items: stretch;
+        justify-content: center;
+        text-align: center;
+        vertical-align: middle;
+        line-height: 1.05;
+        min-width: 1.2em;
+      }
+      .text-render .tex-num,
+      .text-render .tex-den {
+        padding: 0 0.18em;
+      }
+      .text-render .tex-rule {
+        border-top: 1px solid currentColor;
+        margin: 0.1em 0;
+      }
+      .text-render h1,
+      .text-render h2,
+      .text-render h3,
+      .text-render h4,
+      .text-render h5,
+      .text-render h6 {
+        margin: 0 0 0.45em;
+        line-height: 1.25;
+      }
+      .text-render h1:last-child,
+      .text-render h2:last-child,
+      .text-render h3:last-child,
+      .text-render h4:last-child,
+      .text-render h5:last-child,
+      .text-render h6:last-child {
+        margin-bottom: 0;
       }
       .element.image img {
         width: 100%;
@@ -202,6 +279,144 @@ const VIEWER_HTML = `<!doctype html>
       };
       const cache = new Map();
       const escapeHtml = (value) => String(value).replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
+      const mathPattern = /(\$\$[\s\S]+?\$\$|\$[^$\n]+?\$)/g;
+      const mathCommands = {
+        '\\alpha': 'α',
+        '\\beta': 'β',
+        '\\gamma': 'γ',
+        '\\delta': 'δ',
+        '\\epsilon': 'ε',
+        '\\theta': 'θ',
+        '\\lambda': 'λ',
+        '\\mu': 'μ',
+        '\\pi': 'π',
+        '\\rho': 'ρ',
+        '\\sigma': 'σ',
+        '\\tau': 'τ',
+        '\\phi': 'φ',
+        '\\omega': 'ω',
+        '\\times': '×',
+        '\\cdot': '·',
+        '\\pm': '±',
+        '\\leq': '≤',
+        '\\geq': '≥',
+        '\\neq': '≠',
+        '\\to': '→',
+      };
+      function textStyleToString(style) {
+        return [
+          'font-size:' + style.fontSize + 'px',
+          'color:' + style.color,
+          'background-color:' + style.backgroundColor,
+          'padding:' + style.padding + 'px',
+          'font-family:' + (style.fontFamily || 'inherit'),
+          'border-color:' + (style.borderColor || 'transparent'),
+          'border-width:' + (style.borderWidth ?? 0) + 'px',
+        ].join(';');
+      }
+      function renderInlineMarkdown(content) {
+        const codeSpans = [];
+        let output = escapeHtml(content).replace(/\n/g, '<br />').replace(/\`([^\`]+)\`/g, (_match, code) => {
+          codeSpans.push(code);
+          return '\u0000' + (codeSpans.length - 1) + '\u0000';
+        });
+        output = output
+          .replace(/\*\*([\s\S]+?)\*\*/g, '<strong>$1</strong>')
+          .replace(/(^|[^*])\*([^*\n]+?)\*(?!\*)/g, '$1<em>$2</em>')
+          .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>');
+        return output.replace(/\u0000(\d+)\u0000/g, (_match, index) => '<code>' + codeSpans[Number(index)] + '</code>');
+      }
+      function renderMarkdownBlocks(content) {
+        const lines = String(content).replace(/\r\n/g, '\n').split('\n');
+        const blocks = [];
+        let index = 0;
+        const isListLine = (value) => /^\s*[-*+]\s+/.test(value);
+        const isHeadingLine = (value) => /^\s*#{1,6}\s+/.test(value);
+        const isBlockStart = (value) => isListLine(value) || isHeadingLine(value);
+        while (index < lines.length) {
+          const line = lines[index];
+          if (!line.trim()) {
+            index += 1;
+            continue;
+          }
+          if (isHeadingLine(line)) {
+            const match = line.match(/^\s*(#{1,6})\s+(.+)$/);
+            const level = Math.min(6, Math.max(1, match?.[1].length ?? 1));
+            blocks.push('<h' + level + '>' + renderInlineMarkdown(match?.[2] ?? '') + '</h' + level + '>');
+            index += 1;
+            continue;
+          }
+          if (isListLine(line)) {
+            const items = [];
+            while (index < lines.length && isListLine(lines[index])) {
+              items.push(lines[index].replace(/^\s*[-*+]\s+/, ''));
+              index += 1;
+            }
+            blocks.push('<ul>' + items.map((item) => '<li>' + renderInlineMarkdown(item) + '</li>').join('') + '</ul>');
+            continue;
+          }
+          const paragraph = [];
+          while (index < lines.length) {
+            const current = lines[index];
+            if (!current.trim()) break;
+            if (paragraph.length > 0 && isBlockStart(current)) break;
+            paragraph.push(current);
+            index += 1;
+          }
+          blocks.push('<p>' + renderInlineMarkdown(paragraph.join('\n')) + '</p>');
+        }
+        return blocks.join('');
+      }
+      function renderMathExpression(content, displayMode) {
+        let output = escapeHtml(String(content).trim());
+        output = output.replace(/\\frac\s*\{([^{}]+)\}\s*\{([^{}]+)\}/g, (_match, numerator, denominator) => {
+          return '<span class="tex-frac"><span class="tex-num">' + numerator + '</span><span class="tex-rule"></span><span class="tex-den">' + denominator + '</span></span>';
+        });
+        output = output.replace(/\\frac\s+([^\s{}]+)\s+([^\s{}]+)/g, (_match, numerator, denominator) => {
+          return '<span class="tex-frac"><span class="tex-num">' + numerator + '</span><span class="tex-rule"></span><span class="tex-den">' + denominator + '</span></span>';
+        });
+        output = output.replace(/([A-Za-z0-9\)\]])\^\{([^{}]+)\}/g, '$1<sup>$2</sup>');
+        output = output.replace(/([A-Za-z0-9\)\]])\^([A-Za-z0-9+-]+)/g, '$1<sup>$2</sup>');
+        output = output.replace(/([A-Za-z0-9\)\]])_\{([^{}]+)\}/g, '$1<sub>$2</sub>');
+        output = output.replace(/([A-Za-z0-9\)\]])_([A-Za-z0-9+-]+)/g, '$1<sub>$2</sub>');
+        for (const [command, replacement] of Object.entries(mathCommands)) {
+          output = output.replace(new RegExp(command.replace(/[-/\\^*+?.()|[\]{}]/g, '\\$&'), 'g'), replacement);
+        }
+        return '<span class="' + (displayMode ? 'tex-block' : 'tex-inline') + '">' + output + '</span>';
+      }
+      function splitTextSegments(content) {
+        const segments = [];
+        let lastIndex = 0;
+        mathPattern.lastIndex = 0;
+        for (const match of String(content).matchAll(mathPattern)) {
+          const start = match.index ?? 0;
+          const raw = match[0];
+          if (start > lastIndex) segments.push({ kind: 'text', value: String(content).slice(lastIndex, start) });
+          if (raw.startsWith('$$')) segments.push({ kind: 'math', value: raw.slice(2, -2).trim(), display: true });
+          else segments.push({ kind: 'math', value: raw.slice(1, -1).trim(), display: false });
+          lastIndex = start + raw.length;
+        }
+        if (lastIndex < String(content).length) segments.push({ kind: 'text', value: String(content).slice(lastIndex) });
+        return segments;
+      }
+      function renderTextContent(content, format) {
+        const value = String(content ?? '');
+        if (format === 'plain') {
+          return '<div class="text-render plain">' + escapeHtml(value).replace(/\n/g, '<br />') + '</div>';
+        }
+        if (format === 'tex') {
+          const segments = splitTextSegments(value);
+          if (segments.length === 1 && segments[0]?.kind === 'text') {
+            return '<div class="text-render tex">' + renderMathExpression(segments[0].value, true) + '</div>';
+          }
+          return '<div class="text-render tex">' + segments.map((segment) => segment.kind === 'math' ? renderMathExpression(segment.value, segment.display) : renderMarkdownBlocks(segment.value)).join('') + '</div>';
+        }
+        if (format === 'markdown') {
+          return '<div class="text-render markdown">' + renderMarkdownBlocks(value) + '</div>';
+        }
+        const segments = splitTextSegments(value);
+        return '<div class="text-render markdown-tex">' + segments.map((segment) => segment.kind === 'math' ? renderMathExpression(segment.value, segment.display) : renderMarkdownBlocks(segment.value)).join('') + '</div>';
+      }
       function parseHash() {
         const raw = location.hash.startsWith('#/') ? location.hash.slice(2) : location.hash.startsWith('#') ? location.hash.slice(1) : location.hash;
         if (!raw) return { subjectId: null, noteId: null };
@@ -252,7 +467,7 @@ const VIEWER_HTML = `<!doctype html>
       }
       function renderElement(subjectId, noteId, element) {
         if (element.type === 'text') {
-          return '<div class="element text" style="left:' + element.x + 'px; top:' + element.y + 'px; width:' + element.width + 'px; height:' + element.height + 'px; z-index:' + element.zIndex + ';"><div class="surface">' + escapeHtml(element.content ?? '') + '</div></div>';
+          return '<div class="element text" style="left:' + element.x + 'px; top:' + element.y + 'px; width:' + element.width + 'px; height:' + element.height + 'px; z-index:' + element.zIndex + ';"><div class="surface" style="' + textStyleToString(element.style) + '">' + renderTextContent(element.content ?? '', element.format ?? 'plain') + '</div></div>';
         }
         if (element.type === 'image') {
           const src = dataRoot + '/notes/' + subjectId + '/' + noteId + '/' + element.src;

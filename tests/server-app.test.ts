@@ -111,6 +111,10 @@ test("api routes serve health and workspace data", async () => {
     assert.match(viewerIndex, /godnote viewer/);
     const viewerHtml = await fetch(`${baseUrl}/api/templates/workspace-viewer`).then((response) => response.text());
     assert.match(viewerHtml, /location\.hash\.startsWith\('#\/'\)/);
+
+    const workspaceInfo = await fetch(`${baseUrl}/api/workspace`).then((response) => response.json() as Promise<{ path: string; name: string }>);
+    assert.equal(workspaceInfo.path, root);
+    assert.equal(workspaceInfo.name, root.split("/").pop());
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));
     if (previousRoot === undefined) {

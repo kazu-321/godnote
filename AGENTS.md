@@ -38,6 +38,9 @@ The same frontend codebase is still used for the desktop editor. GitHub Pages is
 - The app may generate a GitHub Pages workflow inside a workspace.
 - GitHub Pages for this repo should stay a documentation site.
 - The next big step is Electron packaging.
+- Ubuntu desktop packaging should use `.deb` first.
+- `npm run release` should build both `.deb` and `AppImage`.
+- Deb builds should carry a unique build version so repeated installs upgrade cleanly.
 - The eventual packaged app should produce OS-specific builds, not one cross-OS binary.
 
 ## Important Rules
@@ -102,6 +105,8 @@ Use these checks when changing app behavior:
 - `npm test`
 - `npm run build`
 - `npm run build:docs`
+- `npm run release`
+- `npm run deb`
 
 For data-shape changes, keep `sample_workspace/manifest.json` and the tests in sync.
 
@@ -110,7 +115,7 @@ For data-shape changes, keep `sample_workspace/manifest.json` and the tests in s
 1. Finish the desktop workspace flow.
 2. Keep sample data minimal.
 3. Rename the repository cleanly when the project name is finalized.
-4. Move the desktop app to Electron.
+4. Finish the Electron desktop packaging flow.
 5. Keep GitHub Pages as documentation only.
 
 ## Notes For Future Work
