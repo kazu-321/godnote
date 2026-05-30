@@ -19,6 +19,13 @@ export interface PerspectiveTransformOptions {
   outputHeight?: number;
 }
 
+export function estimatePerspectiveOutputSize(points: NonNullable<PerspectiveTransformOptions["points"]>) {
+  return {
+    width: Math.max(1, Math.round((Math.hypot(points.topRight.x - points.topLeft.x, points.topRight.y - points.topLeft.y) + Math.hypot(points.bottomRight.x - points.bottomLeft.x, points.bottomRight.y - points.bottomLeft.y)) / 2)),
+    height: Math.max(1, Math.round((Math.hypot(points.bottomLeft.x - points.topLeft.x, points.bottomLeft.y - points.topLeft.y) + Math.hypot(points.bottomRight.x - points.topRight.x, points.bottomRight.y - points.topRight.y)) / 2)),
+  };
+}
+
 function hexToRgb(hex: string) {
   const normalized = hex.replace("#", "");
   if (normalized.length !== 6) return { r: 255, g: 255, b: 255 };
@@ -121,30 +128,25 @@ function applyPerspectiveTransform(canvas: HTMLCanvasElement, options: Perspecti
   const srcContext = canvas.getContext("2d");
   if (!srcContext) throw new Error("Canvas context unavailable.");
   const source = srcContext.getImageData(0, 0, srcWidth, srcHeight);
-  const outputWidth = Math.max(1, Math.round(options.outputWidth ?? Math.max(
-    Math.hypot(options.points.topRight.x - options.points.topLeft.x, options.points.topRight.y - options.points.topLeft.y),
-    Math.hypot(options.points.bottomRight.x - options.points.bottomLeft.x, options.points.bottomRight.y - options.points.bottomLeft.y),
-  )));
-  const outputHeight = Math.max(1, Math.round(options.outputHeight ?? Math.max(
-    Math.hypot(options.points.bottomLeft.x - options.points.topLeft.x, options.points.bottomLeft.y - options.points.topLeft.y),
-    Math.hypot(options.points.bottomRight.x - options.points.topRight.x, options.points.bottomRight.y - options.points.topRight.y),
-  )));
+  const estimatedSize = estimatePerspectiveOutputSize(options.points);
+  const outputWidth = Math.max(1, Math.round(options.outputWidth ?? estimatedSize.width));
+  const outputHeight = Math.max(1, Math.round(options.outputHeight ?? estimatedSize.height));
   const output = createCanvas(outputWidth, outputHeight);
   const outContext = output.getContext("2d");
   if (!outContext) throw new Error("Canvas context unavailable.");
-  const src = [
-    { x: 0, y: 0 },
-    { x: srcWidth - 1, y: 0 },
-    { x: srcWidth - 1, y: srcHeight - 1 },
-    { x: 0, y: srcHeight - 1 },
-  ];
-  const dst = [
+  const sourceQuad = [
     options.points.topLeft,
     options.points.topRight,
     options.points.bottomRight,
     options.points.bottomLeft,
   ];
-  const inverse = solveHomography(dst, src);
+  const destRect = [
+    { x: 0, y: 0 },
+    { x: outputWidth - 1, y: 0 },
+    { x: outputWidth - 1, y: outputHeight - 1 },
+    { x: 0, y: outputHeight - 1 },
+  ];
+  const inverse = solveHomography(destRect, sourceQuad);
   const srcData = source.data;
   const outImage = outContext.createImageData(outputWidth, outputHeight);
   const dstData = outImage.data;

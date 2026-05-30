@@ -51,6 +51,24 @@ type Interaction =
       startSnapshot: CanvasEditorState;
     }
   | {
+      kind: "rotate";
+      elementId: string;
+      startPointer: Point;
+      startRotation: number;
+      center: Point;
+      startViewport: CanvasViewport;
+      startSnapshot: CanvasEditorState;
+    }
+  | {
+      kind: "line-endpoint";
+      elementId: string;
+      endpoint: "start" | "end";
+      startPointer: Point;
+      startViewport: CanvasViewport;
+      startSnapshot: CanvasEditorState;
+      startElement: LineCanvasElement;
+    }
+  | {
       kind: "draw";
       tool: Exclude<CanvasTool, "line">;
       startPointer: Point;
@@ -164,6 +182,108 @@ function elementBounds(element: CanvasElement) {
     return { left, top, right, bottom };
   }
   return { left: element.x, top: element.y, right: element.x + element.width, bottom: element.y + element.height };
+}
+
+function elementCenter(element: CanvasElement) {
+  const bounds = elementBounds(element);
+  return { x: (bounds.left + bounds.right) / 2, y: (bounds.top + bounds.bottom) / 2 };
+}
+
+function rotatePoint(point: Point, center: Point, rotationDeg: number) {
+  const radians = (rotationDeg * Math.PI) / 180;
+  const cos = Math.cos(radians);
+  const sin = Math.sin(radians);
+  const dx = point.x - center.x;
+  const dy = point.y - center.y;
+  return {
+    x: center.x + dx * cos - dy * sin,
+    y: center.y + dx * sin + dy * cos,
+  };
+}
+
+function unrotatePoint(point: Point, center: Point, rotationDeg: number) {
+  return rotatePoint(point, center, -rotationDeg);
+}
+
+function rotatedBounds(element: CanvasElement) {
+  if (element.rotation === 0) return elementBounds(element);
+  const bounds = elementBounds(element);
+  const center = elementCenter(element);
+  const corners = [
+    { x: bounds.left, y: bounds.top },
+    { x: bounds.right, y: bounds.top },
+    { x: bounds.right, y: bounds.bottom },
+    { x: bounds.left, y: bounds.bottom },
+  ].map((point) => rotatePoint(point, center, element.rotation));
+  return {
+    left: Math.min(...corners.map((point) => point.x)),
+    top: Math.min(...corners.map((point) => point.y)),
+    right: Math.max(...corners.map((point) => point.x)),
+    bottom: Math.max(...corners.map((point) => point.y)),
+  };
+}
+
+function rotatedCorners(element: CanvasElement) {
+  const bounds = elementBounds(element);
+  const center = elementCenter(element);
+  const corners = {
+    nw: rotatePoint({ x: bounds.left, y: bounds.top }, center, element.rotation),
+    ne: rotatePoint({ x: bounds.right, y: bounds.top }, center, element.rotation),
+    se: rotatePoint({ x: bounds.right, y: bounds.bottom }, center, element.rotation),
+    sw: rotatePoint({ x: bounds.left, y: bounds.bottom }, center, element.rotation),
+  };
+  const edges = {
+    n: { x: (corners.nw.x + corners.ne.x) / 2, y: (corners.nw.y + corners.ne.y) / 2 },
+    e: { x: (corners.ne.x + corners.se.x) / 2, y: (corners.ne.y + corners.se.y) / 2 },
+    s: { x: (corners.sw.x + corners.se.x) / 2, y: (corners.sw.y + corners.se.y) / 2 },
+    w: { x: (corners.nw.x + corners.sw.x) / 2, y: (corners.nw.y + corners.sw.y) / 2 },
+  };
+  return { ...corners, ...edges };
+}
+
+function selectionControlFrame(element: CanvasElement) {
+  const bounds = elementBounds(element);
+  const left = bounds.left;
+  const top = bounds.top;
+  const width = Math.max(1, bounds.right - bounds.left);
+  const height = Math.max(1, bounds.bottom - bounds.top);
+  return { left, top, width, height };
+}
+
+function lineGeometry(element: LineCanvasElement) {
+  const center = elementCenter(element);
+  const startPoint = element.rotation ? rotatePoint(element.start, center, element.rotation) : element.start;
+  const endPoint = element.rotation ? rotatePoint(element.end, center, element.rotation) : element.end;
+  const x1 = startPoint.x;
+  const y1 = startPoint.y;
+  const x2 = endPoint.x;
+  const y2 = endPoint.y;
+  const padding = Math.max(10, (element.strokeWidth ?? DEFAULT_STROKE_WIDTH) / 2 + 4);
+  const left = Math.min(x1, x2) - padding;
+  const top = Math.min(y1, y2) - padding;
+  const right = Math.max(x1, x2) + padding;
+  const bottom = Math.max(y1, y2) + padding;
+  return {
+    padding,
+    left,
+    top,
+    width: Math.max(1, right - left),
+    height: Math.max(1, bottom - top),
+    x1: x1 - left,
+    y1: y1 - top,
+    x2: x2 - left,
+    y2: y2 - top,
+  };
+}
+
+function lineEndpointPositions(element: LineCanvasElement) {
+  const center = elementCenter(element);
+  const start = element.rotation ? rotatePoint(element.start, center, element.rotation) : element.start;
+  const end = element.rotation ? rotatePoint(element.end, center, element.rotation) : element.end;
+  return {
+    start,
+    end,
+  };
 }
 
 function elementScreenBounds(element: CanvasElement, viewport: CanvasViewport) {
@@ -361,12 +481,7 @@ function createFreehandElement(points: Point[]): FreehandCanvasElement {
 }
 
 function lineViewBox(element: LineCanvasElement) {
-  return {
-    x1: element.start.x - element.x,
-    y1: element.start.y - element.y,
-    x2: element.end.x - element.x,
-    y2: element.end.y - element.y,
-  };
+  return lineGeometry(element);
 }
 
 function freehandPoints(element: FreehandCanvasElement) {
@@ -433,12 +548,41 @@ function elementSurfaceStyle(element: CanvasElement): CSSProperties {
       boxShadow: "0 8px 24px rgba(30, 20, 10, 0.08)",
     };
   }
+  if (element.type === "line" || element.type === "freehand") {
+    return {
+      display: "block",
+      padding: 0,
+      backgroundColor: "transparent",
+      borderColor: "transparent",
+      boxShadow: "none",
+    };
+  }
   return {
     display: "block",
     padding: 0,
     backgroundColor: "transparent",
     borderColor: "transparent",
   };
+}
+
+function elementTransformStyle(element: CanvasElement): CSSProperties {
+  if (element.type === "line") return {};
+  if (!element.rotation) return {};
+  return {
+    transform: `rotate(${element.rotation}deg)`,
+    transformOrigin: "center center",
+  };
+}
+
+function angleFromCenter(center: Point, pointer: Point) {
+  return Math.atan2(pointer.x - center.x, center.y - pointer.y) * 180 / Math.PI;
+}
+
+function normalizeAngleDelta(delta: number) {
+  let next = delta;
+  while (next > 180) next -= 360;
+  while (next < -180) next += 360;
+  return next;
 }
 
 function isEditableTarget(target: EventTarget | null) {
@@ -1076,31 +1220,45 @@ export function NoteEditorPage(props: { subjectId: string; noteId: string; stora
     };
   }, [props.noteId, props.subjectId, storage]);
 
-  useEffect(() => {
-    const previousUrls = imageAssetUrlsRef.current;
-    imageAssetUrlsRef.current = {};
-    setImageAssetUrls({});
-    for (const url of Object.values(previousUrls)) {
-      URL.revokeObjectURL(url);
-    }
-    if (!note) return;
+  const imageSrcKey = useMemo(
+    () => [...new Set(elements.filter((element): element is ImageCanvasElement => element.type === "image").map((element) => element.src))]
+      .sort()
+      .join("\u0000"),
+    [elements],
+  );
 
-    const imageSrcs = [...new Set(elements.filter((element): element is ImageCanvasElement => element.type === "image").map((element) => element.src))];
-    if (imageSrcs.length === 0) return;
+  useEffect(() => {
+    const imageSrcs = imageSrcKey ? imageSrcKey.split("\u0000") : [];
+    const previousUrls = imageAssetUrlsRef.current;
+    const nextUrlMap: Record<string, string> = {};
+    const previousKeys = new Set(Object.keys(previousUrls));
+    for (const src of imageSrcs) {
+      const existingUrl = previousUrls[src];
+      if (existingUrl) {
+        nextUrlMap[src] = existingUrl;
+        previousKeys.delete(src);
+      }
+    }
+    for (const staleSrc of previousKeys) {
+      URL.revokeObjectURL(previousUrls[staleSrc]);
+    }
+    imageAssetUrlsRef.current = nextUrlMap;
+    setImageAssetUrls(nextUrlMap);
+
+    const missingSrcs = imageSrcs.filter((src) => !nextUrlMap[src]);
+    if (missingSrcs.length === 0) return;
 
     let cancelled = false;
     const createdUrls: string[] = [];
     Promise.allSettled(
-      imageSrcs.map(async (src) => {
+      missingSrcs.map(async (src) => {
         const bytes = await storage.loadAsset({
           subjectId: props.subjectId,
           noteId: props.noteId,
           path: src,
         });
         const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
-        const objectUrl = URL.createObjectURL(
-          new Blob([buffer], { type: "image/png" }),
-        );
+        const objectUrl = URL.createObjectURL(new Blob([buffer], { type: "image/png" }));
         createdUrls.push(objectUrl);
         return [src, objectUrl] as const;
       }),
@@ -1109,9 +1267,10 @@ export function NoteEditorPage(props: { subjectId: string; noteId: string; stora
         for (const url of createdUrls) URL.revokeObjectURL(url);
         return;
       }
-      const nextUrls = Object.fromEntries(results.flatMap((result) => (result.status === "fulfilled" ? [result.value] : [])));
-      imageAssetUrlsRef.current = nextUrls;
-      setImageAssetUrls(nextUrls);
+      const loadedUrls = Object.fromEntries(results.flatMap((result) => (result.status === "fulfilled" ? [result.value] : [])));
+      const mergedUrls = { ...imageAssetUrlsRef.current, ...loadedUrls };
+      imageAssetUrlsRef.current = mergedUrls;
+      setImageAssetUrls(mergedUrls);
       for (const result of results) {
         if (result.status === "rejected") {
           console.error("Failed to load note image asset", result.reason);
@@ -1123,7 +1282,7 @@ export function NoteEditorPage(props: { subjectId: string; noteId: string; stora
       cancelled = true;
       for (const url of createdUrls) URL.revokeObjectURL(url);
     };
-  }, [elements, note, props.noteId, props.subjectId, storage]);
+  }, [imageSrcKey, props.noteId, props.subjectId, storage]);
 
   useEffect(() => {
     if (!note) {
@@ -1408,6 +1567,39 @@ export function NoteEditorPage(props: { subjectId: string; noteId: string; stora
           current.map((element) => (element.id === interaction.elementId ? resizeElement(element, nextBounds) : element)),
           { recordHistory: false },
         );
+      } else if (interaction.kind === "rotate") {
+        const currentWorld = screenToWorld(currentPointer, interaction.startViewport);
+        const startWorld = screenToWorld(interaction.startPointer, interaction.startViewport);
+        const startAngle = angleFromCenter(interaction.center, startWorld);
+        const currentAngle = angleFromCenter(interaction.center, currentWorld);
+        const nextRotation = interaction.startRotation + normalizeAngleDelta(currentAngle - startAngle);
+        setElements((current) =>
+          current.map((element) => (element.id === interaction.elementId ? { ...element, rotation: nextRotation } : element)),
+          { recordHistory: false },
+        );
+      } else if (interaction.kind === "line-endpoint") {
+        const currentWorld = screenToWorld(currentPointer, interaction.startViewport);
+        const center = elementCenter(interaction.startElement);
+        const localPoint = interaction.startElement.rotation
+          ? unrotatePoint(currentWorld, center, interaction.startElement.rotation)
+          : currentWorld;
+        setElements((current) =>
+          current.map((element) => {
+            if (element.id !== interaction.elementId || element.type !== "line") return element;
+            const nextLine = interaction.endpoint === "start"
+              ? { ...element, start: localPoint }
+              : { ...element, end: localPoint };
+            const rect = normalizeRectFromPoints(nextLine.start, nextLine.end);
+            return {
+              ...nextLine,
+              x: rect.x,
+              y: rect.y,
+              width: rect.width,
+              height: rect.height,
+            };
+          }),
+          { recordHistory: false },
+        );
       } else if (interaction.kind === "draw") {
         if (interaction.tool === "freehand") {
           const lastPoint = interaction.points[interaction.points.length - 1];
@@ -1487,6 +1679,20 @@ export function NoteEditorPage(props: { subjectId: string; noteId: string; stora
         const after = canvasStateRef.current;
         if (serializeCanvasState(before) !== serializeCanvasState(after)) {
           canvasHistoryRef.current.record(createSnapshotCanvasCommand("resize element", before, after));
+        }
+      }
+      if (interaction?.kind === "rotate") {
+        const before = interaction.startSnapshot;
+        const after = canvasStateRef.current;
+        if (serializeCanvasState(before) !== serializeCanvasState(after)) {
+          canvasHistoryRef.current.record(createSnapshotCanvasCommand("rotate element", before, after));
+        }
+      }
+      if (interaction?.kind === "line-endpoint") {
+        const before = interaction.startSnapshot;
+        const after = canvasStateRef.current;
+        if (serializeCanvasState(before) !== serializeCanvasState(after)) {
+          canvasHistoryRef.current.record(createSnapshotCanvasCommand("adjust line endpoint", before, after));
         }
       }
       if (interaction?.kind === "draw") {
@@ -1589,6 +1795,29 @@ export function NoteEditorPage(props: { subjectId: string; noteId: string; stora
     const world = screenToWorld(pointer, viewport);
     const hit = [...sortedElements].reverse().find((element) => {
       const bounds = elementBounds(element);
+      const center = elementCenter(element);
+      const localPoint = element.rotation ? unrotatePoint(world, center, element.rotation) : world;
+      if (element.type === "line") {
+        const strokePadding = Math.max(8, (element.strokeWidth ?? DEFAULT_STROKE_WIDTH) / 2 + 6);
+        const x1 = element.start.x;
+        const y1 = element.start.y;
+        const x2 = element.end.x;
+        const y2 = element.end.y;
+        const dx = x2 - x1;
+        const dy = y2 - y1;
+        const lengthSquared = dx * dx + dy * dy;
+        if (lengthSquared === 0) {
+          return Math.hypot(localPoint.x - x1, localPoint.y - y1) <= strokePadding;
+        }
+        const rawT = ((localPoint.x - x1) * dx + (localPoint.y - y1) * dy) / lengthSquared;
+        const t = Math.max(0, Math.min(1, rawT));
+        const nearestX = x1 + t * dx;
+        const nearestY = y1 + t * dy;
+        return Math.hypot(localPoint.x - nearestX, localPoint.y - nearestY) <= strokePadding;
+      }
+      if (element.rotation) {
+        return localPoint.x >= bounds.left && localPoint.x <= bounds.right && localPoint.y >= bounds.top && localPoint.y <= bounds.bottom;
+      }
       return world.x >= bounds.left && world.x <= bounds.right && world.y >= bounds.top && world.y <= bounds.bottom;
     });
     return hit ?? null;
@@ -2113,13 +2342,22 @@ export function NoteEditorPage(props: { subjectId: string; noteId: string; stora
         >
           {sortedElements.map((element) => {
             const isSelected = selectedIds.includes(element.id);
-            const baseStyle = {
-              left: `${element.x}px`,
-              top: `${element.y}px`,
-              width: `${element.width}px`,
-              height: `${element.height}px`,
-              zIndex: element.zIndex,
-            } as const;
+            const lineShape = element.type === "line" ? lineViewBox(element) : null;
+            const baseStyle = element.type === "line" && lineShape
+              ? {
+                  left: `${lineShape.left}px`,
+                  top: `${lineShape.top}px`,
+                  width: `${lineShape.width}px`,
+                  height: `${lineShape.height}px`,
+                  zIndex: element.zIndex,
+                } as const
+              : {
+                  left: `${element.x}px`,
+                  top: `${element.y}px`,
+                  width: `${element.width}px`,
+                  height: `${element.height}px`,
+                  zIndex: element.zIndex,
+                } as const;
             const assetUrl = element.type === "image" ? imageAssetUrls[element.src] ?? null : null;
             return (
               <div
@@ -2127,9 +2365,10 @@ export function NoteEditorPage(props: { subjectId: string; noteId: string; stora
                 className={`canvas-element canvas-element-${element.type} ${isSelected ? "selected" : ""} ${!canEdit && element.type === "text" ? "readonly-text" : ""}`}
                 style={{
                   ...baseStyle,
-                  ...elementSurfaceStyle(element),
-                  ...(element.type === "text" ? textBoxStyle(element) : {}),
-                }}
+                ...elementSurfaceStyle(element),
+                ...elementTransformStyle(element),
+                ...(element.type === "text" ? textBoxStyle(element) : {}),
+              }}
                 draggable={false}
                 onContextMenu={(event) => {
                   if (!canEdit) return;
@@ -2157,12 +2396,12 @@ export function NoteEditorPage(props: { subjectId: string; noteId: string; stora
               ) : element.type === "image" ? (
                   assetUrl ? <img src={assetUrl} alt={element.originalFileName ?? element.id} draggable={false} /> : null
                 ) : element.type === "line" ? (
-                  <svg className="canvas-element-svg" viewBox={`0 0 ${Math.max(1, element.width)} ${Math.max(1, element.height)}`} preserveAspectRatio="none" aria-hidden="true">
+                  <svg className="canvas-element-svg" viewBox={`0 0 ${Math.max(1, lineShape?.width ?? element.width)} ${Math.max(1, lineShape?.height ?? element.height)}`} preserveAspectRatio="none" aria-hidden="true">
                     <line
-                      x1={lineViewBox(element).x1}
-                      y1={lineViewBox(element).y1}
-                      x2={lineViewBox(element).x2}
-                      y2={lineViewBox(element).y2}
+                      x1={lineShape?.x1 ?? 0}
+                      y1={lineShape?.y1 ?? 0}
+                      x2={lineShape?.x2 ?? element.width}
+                      y2={lineShape?.y2 ?? element.height}
                       stroke={element.stroke}
                       strokeWidth={element.strokeWidth}
                       strokeLinecap="round"
@@ -2184,27 +2423,42 @@ export function NoteEditorPage(props: { subjectId: string; noteId: string; stora
             );
           })}
           {draftElement ? (
+            (() => {
+              const draftLineShape = draftElement.type === "line" ? lineViewBox(draftElement) : null;
+              const draftBaseStyle = draftElement.type === "line" && draftLineShape
+                ? {
+                    left: `${draftLineShape.left}px`,
+                    top: `${draftLineShape.top}px`,
+                    width: `${draftLineShape.width}px`,
+                    height: `${draftLineShape.height}px`,
+                    zIndex: 1900,
+                  } as const
+                : {
+                    left: `${draftElement.x}px`,
+                    top: `${draftElement.y}px`,
+                    width: `${draftElement.width}px`,
+                    height: `${draftElement.height}px`,
+                    zIndex: 1900,
+                  } as const;
+              return (
             <div
                 className={`canvas-element canvas-element-${draftElement.type} draft`}
               style={{
-                left: `${draftElement.x}px`,
-                top: `${draftElement.y}px`,
-                width: `${draftElement.width}px`,
-                height: `${draftElement.height}px`,
-                zIndex: 1900,
+                ...draftBaseStyle,
                 ...elementSurfaceStyle(draftElement),
+                ...elementTransformStyle(draftElement),
                 ...(draftElement.type === "text" ? textBoxStyle(draftElement) : {}),
               }}
             >
               {draftElement.type === "text" ? (
                 <RenderedText content={draftElement.content} style={textContentStyle(draftElement)} />
               ) : draftElement.type === "line" ? (
-                <svg className="canvas-element-svg" viewBox={`0 0 ${Math.max(1, draftElement.width)} ${Math.max(1, draftElement.height)}`} preserveAspectRatio="none" aria-hidden="true">
+                <svg className="canvas-element-svg" viewBox={`0 0 ${Math.max(1, draftLineShape?.width ?? draftElement.width)} ${Math.max(1, draftLineShape?.height ?? draftElement.height)}`} preserveAspectRatio="none" aria-hidden="true">
                   <line
-                    x1={lineViewBox(draftElement).x1}
-                    y1={lineViewBox(draftElement).y1}
-                    x2={lineViewBox(draftElement).x2}
-                    y2={lineViewBox(draftElement).y2}
+                    x1={draftLineShape?.x1 ?? 0}
+                    y1={draftLineShape?.y1 ?? 0}
+                    x2={draftLineShape?.x2 ?? draftElement.width}
+                    y2={draftLineShape?.y2 ?? draftElement.height}
                     stroke={draftElement.stroke}
                     strokeWidth={draftElement.strokeWidth}
                     strokeLinecap="round"
@@ -2223,60 +2477,171 @@ export function NoteEditorPage(props: { subjectId: string; noteId: string; stora
                 </svg>
               ) : null}
             </div>
+              );
+            })()
           ) : null}
-          {selectedElements.map((element) => (
-            <div
-              key={`${element.id}-selection`}
-              className="selection-overlay"
-              style={{
-                left: `${elementBounds(element).left - 4}px`,
-                top: `${elementBounds(element).top - 4}px`,
-                width: `${elementBounds(element).right - elementBounds(element).left + 8}px`,
-                height: `${elementBounds(element).bottom - elementBounds(element).top + 8}px`,
-                zIndex: element.zIndex + 1,
-              }}
-            />
-          ))}
+          {selectedElements
+            .filter((element) => element.type !== "line" && element.type !== "freehand")
+            .map((element) => (
+              <div
+                key={`${element.id}-selection`}
+                className="selection-overlay"
+                style={{
+                  left: `${elementBounds(element).left - 4}px`,
+                  top: `${elementBounds(element).top - 4}px`,
+                  width: `${elementBounds(element).right - elementBounds(element).left + 8}px`,
+                  height: `${elementBounds(element).bottom - elementBounds(element).top + 8}px`,
+                  transform: element.rotation ? `rotate(${element.rotation}deg)` : undefined,
+                  transformOrigin: "center center",
+                  zIndex: element.zIndex + 1,
+                }}
+              />
+            ))}
           {activeElement && !activeElement.locked && (
-            <div className="resize-handle-layer" aria-hidden="true">
-              {(["nw", "n", "ne", "e", "se", "s", "sw", "w"] as ResizeHandle[]).map((handle) => {
-                const bounds = elementBounds(activeElement);
-                const handlePoint = resizeHandlePosition(bounds, handle);
-                const selectedHandleStyle = {
-                  left: `${handlePoint.x - 6}px`,
-                  top: `${handlePoint.y - 6}px`,
+            <div className="selection-controls-layer" aria-hidden="true">
+              {(() => {
+                const frame = selectionControlFrame(activeElement);
+                const frameRotation = activeElement.rotation ? `rotate(${activeElement.rotation}deg)` : undefined;
+                const frameStyle = {
+                  left: `${frame.left}px`,
+                  top: `${frame.top}px`,
+                  width: `${frame.width}px`,
+                  height: `${frame.height}px`,
+                  transform: frameRotation,
+                  transformOrigin: "center center",
                 } as const;
                 return (
-                  <button
-                    key={handle}
-                    type="button"
-                    className={`resize-handle resize-handle-${handle}`}
-                    style={selectedHandleStyle}
+                  <div className="selection-controls-frame" style={frameStyle}>
+                    {activeElement.type === "line" ? (
+                      (() => {
+                        const endpoints = lineEndpointPositions(activeElement);
+                        const localPoints = {
+                          start: { x: endpoints.start.x - frame.left, y: endpoints.start.y - frame.top },
+                          end: { x: endpoints.end.x - frame.left, y: endpoints.end.y - frame.top },
+                        };
+                        return (["start", "end"] as const).map((endpoint) => {
+                          const point = localPoints[endpoint];
+                          const handleStyle = {
+                            left: `${point.x - 6}px`,
+                            top: `${point.y - 6}px`,
+                          } as const;
+                          return (
+                            <button
+                              key={endpoint}
+                              type="button"
+                              className={`resize-handle resize-handle-line-${endpoint}`}
+                              style={handleStyle}
+                              onPointerDown={(event) => {
+                                event.preventDefault();
+                                event.stopPropagation();
+                                if (activeElement.type !== "line") return;
+                                setSelectedIds([activeElement.id]);
+                                setInspector(null);
+                                setInteraction({
+                                  kind: "line-endpoint",
+                                  elementId: activeElement.id,
+                                  endpoint,
+                                  startPointer: { x: event.clientX, y: event.clientY },
+                                  startViewport: viewport,
+                                  startSnapshot: structuredClone(canvasStateRef.current),
+                                  startElement: activeElement,
+                                });
+                                try {
+                                  event.currentTarget.setPointerCapture(event.pointerId);
+                                } catch {
+                                  // ignore
+                                }
+                              }}
+                            />
+                          );
+                        });
+                      })()
+                    ) : activeElement.type !== "freehand" ? (
+                      (["nw", "n", "ne", "e", "se", "s", "sw", "w"] as ResizeHandle[]).map((handle) => {
+                        const width = frame.width;
+                        const height = frame.height;
+                        const handleStyle = {
+                          left:
+                            handle === "nw" || handle === "sw"
+                              ? "-6px"
+                              : handle === "n" || handle === "s"
+                                ? `${width / 2 - 6}px`
+                                : `${width - 6}px`,
+                          top:
+                            handle === "nw" || handle === "n" || handle === "ne"
+                              ? "-6px"
+                              : handle === "w" || handle === "e"
+                                ? `${height / 2 - 6}px`
+                                : `${height - 6}px`,
+                        } as const;
+                        return (
+                          <button
+                            key={handle}
+                            type="button"
+                            className={`resize-handle resize-handle-${handle}`}
+                            style={handleStyle}
+                            onPointerDown={(event) => {
+                              event.preventDefault();
+                              event.stopPropagation();
+                              setSelectedIds([activeElement.id]);
+                              setInspector(null);
+                              setInteraction({
+                                kind: "resize",
+                                elementId: activeElement.id,
+                                handle,
+                                preserveAspect: event.shiftKey || shiftPressed,
+                                startPointer: { x: event.clientX, y: event.clientY },
+                                startViewport: viewport,
+                                startElement: activeElement,
+                                startBounds: elementBounds(activeElement),
+                                startSnapshot: structuredClone(canvasStateRef.current),
+                              });
+                              try {
+                                event.currentTarget.setPointerCapture(event.pointerId);
+                              } catch {
+                                // ignore
+                              }
+                            }}
+                          />
+                        );
+                      })
+                    ) : null}
+                    <button
+                      type="button"
+                      className="rotate-handle"
+                      style={{
+                        left: `${frame.width / 2 - 13}px`,
+                        top: `-40px`,
+                      }}
                     onPointerDown={(event) => {
                       event.preventDefault();
                       event.stopPropagation();
+                      const rect = canvasRef.current?.getBoundingClientRect();
+                      if (!rect) return;
+                      const startPointer = { x: event.clientX - rect.left, y: event.clientY - rect.top };
                       setSelectedIds([activeElement.id]);
                       setInspector(null);
                       setInteraction({
-                        kind: "resize",
+                        kind: "rotate",
                         elementId: activeElement.id,
-                        handle,
-                        preserveAspect: event.shiftKey || shiftPressed,
-                        startPointer: { x: event.clientX, y: event.clientY },
+                        startPointer,
+                        startRotation: activeElement.rotation,
+                        center: elementCenter(activeElement),
                         startViewport: viewport,
-                        startElement: activeElement,
-                        startBounds: elementBounds(activeElement),
                         startSnapshot: structuredClone(canvasStateRef.current),
-                      });
-                      try {
-                        event.currentTarget.setPointerCapture(event.pointerId);
-                      } catch {
-                        // ignore
-                      }
-                    }}
-                  />
+                        });
+                        try {
+                          event.currentTarget.setPointerCapture(event.pointerId);
+                        } catch {
+                          // ignore
+                        }
+                      }}
+                    >
+                      ↻
+                    </button>
+                  </div>
                 );
-              })}
+              })()}
             </div>
           )}
         </div>
@@ -2339,6 +2704,13 @@ export function NoteEditorPage(props: { subjectId: string; noteId: string; stora
               <IconButton label="閉じる" icon="×" onClick={() => setInspector(null)} />
             </div>
             <div className="property-grid">
+              <label>
+                <span>Rotation</span>
+                <PropertyNumberField
+                  value={inspectorElement.rotation}
+                  onCommit={(next) => updateElement(inspectorElement.id, (current) => ({ ...current, rotation: next }))}
+                />
+              </label>
               {inspectorElement.type !== "line" && (
                 <>
                   <label>
@@ -2698,7 +3070,7 @@ export function NoteEditorPage(props: { subjectId: string; noteId: string; stora
                   perspective: { ...current.perspective, enabled: event.target.checked },
                 } : current)}
               />
-              perspective transform
+              四隅を補正して長方形として取り込む
             </label>
             <div className="modal-grid">
               <label>
