@@ -106,6 +106,11 @@ test("api routes serve health and workspace data", async () => {
 
     const assetResponse = await fetch(`${baseUrl}/data/notes/${subjectId}/${noteId}/assets/images/image.png`);
     assert.equal(assetResponse.ok, true);
+
+    const viewerIndex = await fetch(`${baseUrl}/api/templates/workspace-viewer-index`).then((response) => response.text());
+    assert.match(viewerIndex, /godnote viewer/);
+    const viewerHtml = await fetch(`${baseUrl}/api/templates/workspace-viewer`).then((response) => response.text());
+    assert.match(viewerHtml, /location\.hash\.startsWith\('#\/'\)/);
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));
     if (previousRoot === undefined) {

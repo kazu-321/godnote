@@ -13,8 +13,6 @@ import type {
 } from "../../features/notes/model/noteTypes";
 import { manifestSchema, noteMetaSchema, noteSchema, subjectSchema } from "../../features/notes/model/noteSchemas";
 import type { StorageAdapter } from "./storageAdapter";
-import { getWorkspaceViewerIndexHtml } from "./viewerIndexTemplate";
-import { getWorkspaceViewerHtml } from "./viewerTemplate";
 
 const DEFAULT_APP_NAME = "godnote";
 const DEFAULT_APP_VERSION = "0.1.0";
@@ -28,6 +26,10 @@ function workspaceReadonlyError(message: string) {
 
 function splitPath(path: string) {
   return path.split("/").filter(Boolean);
+}
+
+function logWorkspaceTemplateEvent(root: FileSystemDirectoryHandle, phase: string, detail: string) {
+  console.log(`[godnote workspace] ${phase}: ${root.name} - ${detail}`);
 }
 
 async function ensureReadWritePermission(handle: FileSystemDirectoryHandle) {
@@ -64,6 +66,12 @@ async function readJson<T>(root: FileSystemDirectoryHandle, path: string) {
   return JSON.parse(text) as T;
 }
 
+async function readText(root: FileSystemDirectoryHandle, path: string) {
+  const fileHandle = await getFileHandle(root, splitPath(path), false);
+  const file = await fileHandle.getFile();
+  return file.text();
+}
+
 async function writeJson(root: FileSystemDirectoryHandle, path: string, value: unknown) {
   const fileHandle = await getFileHandle(root, splitPath(path), true);
   const writable = await fileHandle.createWritable();
@@ -76,6 +84,15 @@ async function writeBytes(root: FileSystemDirectoryHandle, path: string, bytes: 
   const writable = await fileHandle.createWritable();
   await writable.write(bytes as unknown as BlobPart);
   await writable.close();
+}
+
+async function loadWorkspaceTemplate(path: "workspace-viewer-index" | "workspace-viewer") {
+  console.log(`[godnote workspace] fetching template: ${path}`);
+  const response = await fetch(`/api/templates/${path}`);
+  if (!response.ok) {
+    throw new Error(`Failed to load workspace template ${path}: ${response.status}`);
+  }
+  return response.text();
 }
 
 async function readBytes(root: FileSystemDirectoryHandle, path: string) {
@@ -125,16 +142,33 @@ async function ensureWorkspaceFolders(root: FileSystemDirectoryHandle) {
   await getDirectoryHandle(root, [".github", "workflows"], true);
 }
 
-async function ensureViewerFiles(root: FileSystemDirectoryHandle) {
-  const indexHandle = await getFileHandle(root, ["viewer", "index.html"], true);
-  const indexWritable = await indexHandle.createWritable();
-  await indexWritable.write(`${getWorkspaceViewerIndexHtml()}\n`);
-  await indexWritable.close();
+async function writeTextIfChanged(root: FileSystemDirectoryHandle, path: string, nextText: string) {
+  let previousText: string | null = null;
+  try {
+    previousText = await readText(root, path);
+  } catch {
+    previousText = null;
+  }
 
-  const viewerHandle = await getFileHandle(root, ["viewer", "viewer.html"], true);
-  const viewerWritable = await viewerHandle.createWritable();
-  await viewerWritable.write(`${getWorkspaceViewerHtml()}\n`);
-  await viewerWritable.close();
+  if (previousText === nextText) {
+    logWorkspaceTemplateEvent(root, "unchanged", path);
+    return false;
+  }
+
+  const fileHandle = await getFileHandle(root, splitPath(path), true);
+  const writable = await fileHandle.createWritable();
+  await writable.write(nextText);
+  await writable.close();
+  logWorkspaceTemplateEvent(root, "updated", path);
+  return true;
+}
+
+async function ensureViewerFiles(root: FileSystemDirectoryHandle) {
+  logWorkspaceTemplateEvent(root, "regenerate", "viewer/index.html");
+  await writeTextIfChanged(root, "viewer/index.html", `${await loadWorkspaceTemplate("workspace-viewer-index")}\n`);
+
+  logWorkspaceTemplateEvent(root, "regenerate", "viewer/viewer.html");
+  await writeTextIfChanged(root, "viewer/viewer.html", `${await loadWorkspaceTemplate("workspace-viewer")}\n`);
 }
 
 function defaultManifest(): AppManifest {
@@ -150,6 +184,7 @@ function defaultManifest(): AppManifest {
 export function getWorkspaceDeployWorkflowYaml() {
   return [
     "name: Deploy godnote viewer",
+    "# godnote workspace template v2",
     "",
     "on:",
     "  push:",
@@ -200,14 +235,13 @@ export function getWorkspaceDeployWorkflowYaml() {
 }
 
 async function ensureWorkflowFile(root: FileSystemDirectoryHandle) {
-  const workflowHandle = await getFileHandle(root, [".github", "workflows", "deploy-pages.yml"], true);
-  const writable = await workflowHandle.createWritable();
-  await writable.write(`${getWorkspaceDeployWorkflowYaml()}\n`);
-  await writable.close();
+  logWorkspaceTemplateEvent(root, "regenerate", ".github/workflows/deploy-pages.yml");
+  await writeTextIfChanged(root, ".github/workflows/deploy-pages.yml", `${getWorkspaceDeployWorkflowYaml()}\n`);
 }
 
 async function ensureWorkspaceShape(root: FileSystemDirectoryHandle, options: { createIfMissing: boolean }) {
   await ensureReadWritePermission(root);
+  logWorkspaceTemplateEvent(root, options.createIfMissing ? "open/create" : "open", "ensuring workspace shape");
   const manifestExists = await entryExists(root, "manifest.json");
   if (!manifestExists && !options.createIfMissing) {
     throw new Error("This folder does not look like a godnote workspace.");

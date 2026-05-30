@@ -4,6 +4,7 @@ const VIEWER_HTML = `<!doctype html>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>godnote viewer</title>
+    <!-- godnote workspace template v2 -->
     <style>
       :root {
         color-scheme: light;
@@ -202,7 +203,7 @@ const VIEWER_HTML = `<!doctype html>
       const cache = new Map();
       const escapeHtml = (value) => String(value).replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
       function parseHash() {
-        const raw = location.hash.replace(/^#\/?/, '');
+        const raw = location.hash.startsWith('#/') ? location.hash.slice(2) : location.hash.startsWith('#') ? location.hash.slice(1) : location.hash;
         if (!raw) return { subjectId: null, noteId: null };
         const parts = raw.split('/').filter(Boolean);
         if (parts[0] === 'note') return { subjectId: parts[1] ?? null, noteId: parts[2] ?? null };
