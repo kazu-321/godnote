@@ -6,7 +6,7 @@ const baseTimestamp = "2026-05-30T00:00:00.000Z";
 
 const manifest = {
   schemaVersion: 1,
-  appName: "mynote",
+  appName: "godnote",
   appVersion: "0.1.0",
   subjectOrder: ["subject-a"],
   subjects: [

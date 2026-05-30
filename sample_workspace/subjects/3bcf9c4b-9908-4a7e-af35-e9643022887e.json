@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "id": "3bcf9c4b-9908-4a7e-af35-e9643022887e",
+  "name": "テスト科目",
+  "description": "",
+  "createdAt": "2026-05-30T01:52:56.377Z",
+  "updatedAt": "2026-05-30T01:53:02.022Z",
+  "noteOrder": [
+    "5d6e7081-5181-4e99-96dd-f076089a7f58"
+  ],
+  "notes": [
+    {
+      "id": "5d6e7081-5181-4e99-96dd-f076089a7f58",
+      "title": "テストノート1",
+      "metaPath": "notes/3bcf9c4b-9908-4a7e-af35-e9643022887e/5d6e7081-5181-4e99-96dd-f076089a7f58/meta.json",
+      "notePath": "notes/3bcf9c4b-9908-4a7e-af35-e9643022887e/5d6e7081-5181-4e99-96dd-f076089a7f58/note.json"
+    }
+  ]
+}

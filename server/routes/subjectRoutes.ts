@@ -8,7 +8,7 @@ function isMissingFile(error: unknown) {
 }
 
 async function loadManifest(): Promise<any> {
-  return readJsonFile(manifestPath);
+  return readJsonFile(manifestPath());
 }
 
 export const subjectRoutes = Router()
@@ -52,7 +52,7 @@ export const subjectRoutes = Router()
       const manifest = await loadManifest();
       manifest.subjectOrder.push(subjectId);
       manifest.subjects.push({ id: subjectId, name: subject.name, path: `subjects/${subjectId}.json` });
-      await writeJsonFile(manifestPath, manifest);
+      await writeJsonFile(manifestPath(), manifest);
       await writeJsonFile(subjectPath(subjectId), subject);
       res.json(subject);
     } catch (error) {
@@ -70,7 +70,7 @@ export const subjectRoutes = Router()
       const manifest = await loadManifest();
       manifest.subjectOrder = manifest.subjectOrder.filter((id: string) => id !== req.params.subjectId);
       manifest.subjects = manifest.subjects.filter((item: any) => item.id !== req.params.subjectId);
-      await writeJsonFile(manifestPath, manifest);
+      await writeJsonFile(manifestPath(), manifest);
       res.status(204).end();
     } catch (error) {
       if (isMissingFile(error)) {

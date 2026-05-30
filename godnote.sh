@@ -3,7 +3,7 @@
 set -Eeuo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PID_DIR="$ROOT_DIR/.mynote"
+PID_DIR="$ROOT_DIR/.godnote"
 LOG_DIR="$PID_DIR/logs"
 FRONTEND_PID_FILE="$PID_DIR/frontend.pid"
 API_PID_FILE="$PID_DIR/api.pid"
@@ -20,15 +20,15 @@ mkdir -p "$PID_DIR" "$LOG_DIR"
 print_usage() {
   cat <<USAGE
 Usage:
-  ./mynote.sh start     初回セットアップ、ビルド、フロントエンド/APIを一括起動
-  ./mynote.sh stop      起動中のフロントエンド/APIを停止
-  ./mynote.sh restart   停止してから起動
-  ./mynote.sh status    起動状態を表示
-  ./mynote.sh logs      ログを追跡表示
-  ./mynote.sh build     依存関係を確認してビルドのみ実行
+  ./godnote.sh start     初回セットアップ、ビルド、フロントエンド/APIを一括起動
+  ./godnote.sh stop      起動中のフロントエンド/APIを停止
+  ./godnote.sh restart   停止してから起動
+  ./godnote.sh status    起動状態を表示
+  ./godnote.sh logs      ログを追跡表示
+  ./godnote.sh build     依存関係を確認してビルドのみ実行
 
 Default:
-  ./mynote.sh は ./mynote.sh start と同じ動作
+  ./godnote.sh は ./godnote.sh start と同じ動作
 USAGE
 }
 
@@ -84,7 +84,7 @@ stop_pid_file() {
 }
 
 stop_known_processes() {
-  echo "既存の mynote 関連プロセスを停止します"
+  echo "既存の godnote 関連プロセスを停止します"
 
   stop_pid_file "frontend" "$FRONTEND_PID_FILE"
   stop_pid_file "api" "$API_PID_FILE"
@@ -176,7 +176,7 @@ show_status() {
 
   if [[ -n "$frontend_pid" ]] && pid_is_running "$frontend_pid"; then
     echo "frontend: running pid=$frontend_pid"
-    echo "frontend url: http://${FRONTEND_HOST}:${FRONTEND_PORT}/?mode=local-edit"
+    echo "frontend url: http://${FRONTEND_HOST}:${FRONTEND_PORT}/"
   else
     echo "frontend: stopped"
   fi
@@ -202,8 +202,8 @@ start_all() {
   start_frontend
   sleep 1
   show_status
-  echo "ログ確認: ./mynote.sh logs"
-  echo "停止: ./mynote.sh stop"
+  echo "ログ確認: ./godnote.sh logs"
+  echo "停止: ./godnote.sh stop"
 }
 
 main() {

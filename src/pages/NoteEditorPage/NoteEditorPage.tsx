@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from "react";
-import { appConfig } from "../../app/config";
-import { createStorageAdapter } from "../../shared/storage/storageAdapter";
+import { isViewerBuild } from "../../app/buildFlags";
+import type { StorageAdapter } from "../../shared/storage/storageAdapter";
 import type { SubjectData } from "../../features/notes/model/subjectTypes";
 import type { NoteData, NoteMeta } from "../../features/notes/model/noteTypes";
 import type { CanvasViewport, Point } from "../../features/canvas/model/viewportTypes";
@@ -636,8 +636,9 @@ function clampFloatingRect(anchor: Point, width: number, height: number) {
   };
 }
 
-export function NoteEditorPage(props: { subjectId: string; noteId: string; onBack: () => void }) {
-  const storage = useMemo(() => createStorageAdapter(appConfig.mode), []);
+export function NoteEditorPage(props: { subjectId: string; noteId: string; storage: StorageAdapter; onBack: () => void }) {
+  const storage = props.storage;
+  const canEdit = !isViewerBuild;
   const [subject, setSubject] = useState<SubjectData | null>(null);
   const [noteMeta, setNoteMeta] = useState<NoteMeta | null>(null);
   const [note, setNote] = useState<NoteData | null>(null);
@@ -1101,7 +1102,7 @@ export function NoteEditorPage(props: { subjectId: string; noteId: string; onBac
       if (event.key === "Shift") setShiftPressed(true);
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "a") {
         event.preventDefault();
-        if (appConfig.mode === "local-edit") {
+        if (canEdit) {
           setSelectedIds(elements.map((element) => element.id));
           setInspector(null);
           setContextMenu(null);
@@ -1147,7 +1148,7 @@ export function NoteEditorPage(props: { subjectId: string; noteId: string; onBac
         event.preventDefault();
         setViewport({ x: 0, y: 0, scale: 1 });
       }
-      if ((event.key === "Delete" || event.key === "Backspace") && appConfig.mode === "local-edit") {
+      if ((event.key === "Delete" || event.key === "Backspace") && canEdit) {
         setElements((current) => current.filter((element) => !selectedIds.includes(element.id)));
         setSelectedIds([]);
       }
@@ -1165,7 +1166,7 @@ export function NoteEditorPage(props: { subjectId: string; noteId: string; onBac
   }, [elements, selectedIds]);
 
   useEffect(() => {
-    if (appConfig.mode !== "local-edit" || !note) return;
+    if (!canEdit || !note) return;
     const snapshot = {
       ...note,
       canvas: {
@@ -1672,7 +1673,7 @@ export function NoteEditorPage(props: { subjectId: string; noteId: string; onBac
     const pointer = { x: event.clientX - rect.left, y: event.clientY - rect.top };
     const hit = elementAtPointer(pointer);
     setContextMenu(null);
-    if (appConfig.mode !== "local-edit") {
+    if (!canEdit) {
       if (event.button === 1 || spacePressed) {
         // Middle click pan should work even when the pointer is over an element.
         // Also prevent the browser's autoscroll behavior.
@@ -1829,7 +1830,7 @@ export function NoteEditorPage(props: { subjectId: string; noteId: string; onBac
   }
 
   function onCanvasContextMenu(event: React.MouseEvent<HTMLDivElement>) {
-    if (appConfig.mode !== "local-edit") return;
+    if (!canEdit) return;
     event.preventDefault();
     event.stopPropagation();
     const rect = event.currentTarget.getBoundingClientRect();
@@ -1865,7 +1866,7 @@ export function NoteEditorPage(props: { subjectId: string; noteId: string; onBac
     const hit = elementAtPointer(pointer);
     setContextMenu(null);
     if (tool === "line" || pendingLine) return;
-    if (appConfig.mode !== "local-edit") return;
+    if (!canEdit) return;
     if (hit && event.detail >= 2) {
       openInspectorForElement(hit.id, { x: event.clientX, y: event.clientY });
       return;
@@ -1873,7 +1874,7 @@ export function NoteEditorPage(props: { subjectId: string; noteId: string; onBac
   }
 
   function openInspectorAtEvent(event: ReactMouseEvent<HTMLDivElement>) {
-    if (appConfig.mode !== "local-edit") return;
+    if (!canEdit) return;
     const rect = event.currentTarget.getBoundingClientRect();
     const pointer = { x: event.clientX - rect.left, y: event.clientY - rect.top };
     const hit = elementAtPointer(pointer);
@@ -2016,11 +2017,11 @@ export function NoteEditorPage(props: { subjectId: string; noteId: string; onBac
           <div>
             <div className="eyebrow">note editor</div>
             <h1>{noteTitle}</h1>
-            <p className="muted">{subject?.name ?? "Subject"} / {appConfig.mode}</p>
+            <p className="muted">{subject?.name ?? "Subject"}</p>
           </div>
         </div>
         <div className="editor-actions">
-          {appConfig.mode === "local-edit" && (
+          {canEdit && (
             <>
               <IconButton label="選択" icon="↖" className={tool === "select" ? "active" : ""} onClick={() => setTool("select")} />
               <IconButton label="文字" icon="T" className={tool === "text" ? "active" : ""} onClick={() => setTool("text")} />
@@ -2076,7 +2077,7 @@ export function NoteEditorPage(props: { subjectId: string; noteId: string; onBac
             return (
               <div
                 key={element.id}
-                className={`canvas-element canvas-element-${element.type} ${isSelected ? "selected" : ""} ${appConfig.mode !== "local-edit" && element.type === "text" ? "readonly-text" : ""}`}
+                className={`canvas-element canvas-element-${element.type} ${isSelected ? "selected" : ""} ${!canEdit && element.type === "text" ? "readonly-text" : ""}`}
                 style={{
                   ...baseStyle,
                   ...elementSurfaceStyle(element),
@@ -2084,13 +2085,13 @@ export function NoteEditorPage(props: { subjectId: string; noteId: string; onBac
                 }}
                 draggable={false}
                 onContextMenu={(event) => {
-                  if (appConfig.mode !== "local-edit") return;
+                  if (!canEdit) return;
                   event.preventDefault();
                   event.stopPropagation();
                   setContextMenu({ kind: "element", x: event.clientX, y: event.clientY, elementId: element.id });
                 }}
                 onClick={(event) => {
-                  if (appConfig.mode !== "local-edit") return;
+                  if (!canEdit) return;
                   if (event.detail >= 2) {
                     event.preventDefault();
                     event.stopPropagation();
@@ -2098,7 +2099,7 @@ export function NoteEditorPage(props: { subjectId: string; noteId: string; onBac
                   }
                 }}
                 onDoubleClick={(event) => {
-                  if (appConfig.mode !== "local-edit") return;
+                  if (!canEdit) return;
                   event.preventDefault();
                   event.stopPropagation();
                   openInspectorForElement(element.id, { x: event.clientX, y: event.clientY });
@@ -2245,7 +2246,7 @@ export function NoteEditorPage(props: { subjectId: string; noteId: string; onBac
             {contextMenu.kind === "canvas" ? (
               <>
                 <button type="button" onClick={() => setContextMenu(null)}>選択解除</button>
-                {appConfig.mode === "local-edit" && (
+                {canEdit && (
                   <>
                     <button type="button" onClick={() => { addElementAtCanvasPoint("text", { x: contextMenu.x, y: contextMenu.y }); setContextMenu(null); }}>文字を追加</button>
                     <button type="button" onClick={() => { addElementAtCanvasPoint("rect", { x: contextMenu.x, y: contextMenu.y }); setContextMenu(null); }}>四角を追加</button>
@@ -2262,7 +2263,7 @@ export function NoteEditorPage(props: { subjectId: string; noteId: string; onBac
             ) : (
               <>
                 <button type="button" onClick={() => { setSelectedIds([contextMenu.elementId]); setContextMenu(null); }}>選択</button>
-                {appConfig.mode === "local-edit" && (
+                {canEdit && (
                   <>
                     <button type="button" onClick={() => { duplicateElementsByIds([contextMenu.elementId]); setSelectedIds([contextMenu.elementId]); setContextMenu(null); }}>複製</button>
                     <button type="button" onClick={() => { deleteElementsByIds([contextMenu.elementId]); setContextMenu(null); }}>削除</button>
@@ -2276,7 +2277,7 @@ export function NoteEditorPage(props: { subjectId: string; noteId: string; onBac
             )}
           </div>
         )}
-        {appConfig.mode === "local-edit" && inspectorElement && inspectorStyle && (
+        {canEdit && inspectorElement && inspectorStyle && (
           <div
             className="property-panel"
             style={inspectorStyle}

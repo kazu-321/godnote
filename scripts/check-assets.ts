@@ -2,7 +2,7 @@ import { readdir, readFile, stat } from "node:fs/promises";
 import { extname, join, relative } from "node:path";
 import { manifestSchema, noteSchema, subjectSchema } from "../src/features/notes/model/noteSchemas";
 
-const dataRoot = join("public", "data");
+const dataRoot = join(process.env.GODNOTE_DATA_ROOT ?? "sample_workspace");
 const assetsRootName = "assets";
 
 async function readJson<T>(filePath: string): Promise<T> {

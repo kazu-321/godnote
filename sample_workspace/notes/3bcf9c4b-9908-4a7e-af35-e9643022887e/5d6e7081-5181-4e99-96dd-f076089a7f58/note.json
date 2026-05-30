@@ -1,0 +1,151 @@
+{
+  "schemaVersion": 1,
+  "id": "5d6e7081-5181-4e99-96dd-f076089a7f58",
+  "subjectId": "3bcf9c4b-9908-4a7e-af35-e9643022887e",
+  "title": "テストノート1",
+  "createdAt": "2026-05-30T01:53:02.022Z",
+  "updatedAt": "2026-05-30T01:53:02.022Z",
+  "canvas": {
+    "type": "infinite",
+    "viewport": {
+      "x": 0,
+      "y": 0,
+      "scale": 1
+    },
+    "grid": {
+      "mode": "free",
+      "snapStep": 10,
+      "gridSize": 100,
+      "visible": false
+    },
+    "elements": [
+      {
+        "id": "12be09bf-064a-4d18-abfc-861bcb7379c2",
+        "type": "text",
+        "x": 311,
+        "y": 72,
+        "width": 280,
+        "height": 140,
+        "rotation": 0,
+        "zIndex": 1,
+        "createdAt": "2026-05-30T01:53:06.096Z",
+        "updatedAt": "2026-05-30T01:53:26.328Z",
+        "content": "テキストテスト\n- md 対応チェック\n$\\frac a b tex対応OK$ ",
+        "format": "markdown-tex",
+        "style": {
+          "fontSize": 18,
+          "color": "#1f1a17",
+          "backgroundColor": "rgba(255,255,255,0.96)",
+          "padding": 12
+        }
+      },
+      {
+        "id": "26cfd068-8b27-4ece-b76c-5669fc543737",
+        "type": "rect",
+        "x": 600,
+        "y": 94,
+        "width": 303,
+        "height": 162,
+        "rotation": 0,
+        "zIndex": 2,
+        "createdAt": "2026-05-30T01:53:32.856Z",
+        "updatedAt": "2026-05-30T01:53:32.856Z",
+        "fill": "#f7d7a6",
+        "stroke": "#2f5d62",
+        "strokeWidth": 2
+      },
+      {
+        "id": "cdb0cdec-df1e-4ff5-8e77-6f23146c8340",
+        "type": "ellipse",
+        "x": 1109,
+        "y": 192,
+        "width": 258,
+        "height": 109,
+        "rotation": 0,
+        "zIndex": 3,
+        "createdAt": "2026-05-30T01:53:35.235Z",
+        "updatedAt": "2026-05-30T01:53:35.235Z",
+        "fill": "#cfe8ff",
+        "stroke": "#2f5d62",
+        "strokeWidth": 2
+      },
+      {
+        "id": "e51a2f65-2859-478e-81e1-2ef5d9eaacc1",
+        "type": "line",
+        "x": 666,
+        "y": 129,
+        "width": 367,
+        "height": 278,
+        "rotation": 0,
+        "zIndex": 4,
+        "createdAt": "2026-05-30T01:53:37.268Z",
+        "updatedAt": "2026-05-30T01:53:37.268Z",
+        "start": {
+          "x": 666,
+          "y": 407
+        },
+        "end": {
+          "x": 1033,
+          "y": 129
+        },
+        "stroke": "#2f5d62",
+        "strokeWidth": 6
+      },
+      {
+        "id": "604db305-9dc9-465c-815c-9fecb4cb7c38",
+        "type": "image",
+        "x": 338,
+        "y": 474,
+        "width": 1022,
+        "height": 315,
+        "rotation": 0,
+        "zIndex": 5,
+        "createdAt": "2026-05-30T01:53:45.585Z",
+        "updatedAt": "2026-05-30T01:53:45.585Z",
+        "src": "assets/images/freehand-a9fc0b1f-a1ca-4e30-b908-567391a76eb0.png",
+        "sourceType": "image",
+        "originalFileName": "freehand.png",
+        "importInfo": {
+          "importedAt": "2026-05-30T01:53:45.585Z"
+        }
+      },
+      {
+        "id": "aca36ced-e09d-4236-a30f-088b1b8b83df",
+        "type": "image",
+        "x": 1414,
+        "y": 130,
+        "width": 218,
+        "height": 240,
+        "rotation": 0,
+        "zIndex": 6,
+        "createdAt": "2026-05-30T01:54:52.486Z",
+        "updatedAt": "2026-05-30T01:54:52.486Z",
+        "src": "assets/images/HI7ZZSPaYAA1mUR-fa738c20-6c20-4a96-8b6d-0ae01e0c574b.png",
+        "sourceType": "image",
+        "importInfo": {
+          "importedAt": "2026-05-30T01:54:52.486Z",
+          "transparentBackgroundApplied": false,
+          "perspectiveTransformApplied": true
+        }
+      },
+      {
+        "id": "95820491-0ec1-4ea7-81d4-d890e4c61749",
+        "type": "image",
+        "x": 1090,
+        "y": 335,
+        "width": 298,
+        "height": 109,
+        "rotation": 0,
+        "zIndex": 7,
+        "createdAt": "2026-05-30T01:57:09.187Z",
+        "updatedAt": "2026-05-30T01:57:09.187Z",
+        "src": "assets/images/freehand-37c5d767-aa62-4715-a04f-c8ab3e9dd41a.png",
+        "sourceType": "image",
+        "originalFileName": "freehand.png",
+        "importInfo": {
+          "importedAt": "2026-05-30T01:57:09.187Z"
+        }
+      }
+    ]
+  }
+}

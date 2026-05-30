@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
 import type { DragEvent, FormEvent } from "react";
-import { appConfig } from "./app/config";
-import { createStorageAdapter } from "./shared/storage/storageAdapter";
+import type { StorageAdapter } from "./shared/storage/storageAdapter";
+import { isViewerBuild } from "./app/buildFlags";
 import type { AppManifest } from "./features/notes/model/manifestTypes";
 import type { SubjectData } from "./features/notes/model/subjectTypes";
 import type { NoteMeta } from "./features/notes/model/noteTypes";
@@ -10,6 +10,10 @@ import { Modal } from "./shared/components/Modal";
 import { IconButton } from "./shared/components/IconButton";
 import { navigateHome, navigateToNote, readRouteState } from "./app/router";
 import { NoteEditorPage } from "./pages/NoteEditorPage/NoteEditorPage";
+import { WorkspaceLauncherPage } from "./pages/WorkspaceLauncherPage/WorkspaceLauncherPage";
+import { StaticReadonlyStorageAdapter } from "./shared/storage/staticReadonlyStorageAdapter";
+import { loadRecentWorkspace, saveRecentWorkspace, type RecentWorkspaceRecord } from "./shared/storage/recentWorkspaceStore";
+import { openWorkspaceStorageAdapter } from "./shared/storage/workspaceStorageAdapter";
 
 type DragKind = "subject" | "note";
 type SubjectDropTarget = string | "__end__" | null;
@@ -23,6 +27,7 @@ type DialogState =
   | { kind: "confirm-delete"; target: "subject" | "note"; subjectId: string; noteId?: string };
 
 type DragState = { kind: DragKind; subjectId: string; noteId?: string } | null;
+type WorkspacePhase = "booting" | "launcher" | "ready";
 
 function isMissingFileError(error: unknown) {
   return error instanceof Error && (error.message.includes("ENOENT") || error.message.includes("404"));
@@ -30,6 +35,10 @@ function isMissingFileError(error: unknown) {
 
 export default function App() {
   const [routeTick, setRouteTick] = useState(0);
+  const [storage, setStorage] = useState<StorageAdapter | null>(() => (isViewerBuild ? new StaticReadonlyStorageAdapter() : null));
+  const [workspacePhase, setWorkspacePhase] = useState<WorkspacePhase>(() => (isViewerBuild ? "ready" : "booting"));
+  const [workspaceName, setWorkspaceName] = useState<string | null>(null);
+  const [recentWorkspace, setRecentWorkspace] = useState<RecentWorkspaceRecord | null>(null);
   const [manifest, setManifest] = useState<AppManifest | null>(null);
   const [subjects, setSubjects] = useState<Record<string, SubjectData>>({});
   const [notes, setNotes] = useState<Record<string, NoteMeta>>({});
@@ -41,8 +50,8 @@ export default function App() {
   const [subjectDropTarget, setSubjectDropTarget] = useState<SubjectDropTarget>(null);
   const [noteDropTarget, setNoteDropTarget] = useState<NoteDropTarget>(null);
 
-  const storage = useMemo(() => createStorageAdapter(appConfig.mode), []);
   const route = useMemo(() => readRouteState(), [routeTick]);
+  const canEdit = !isViewerBuild;
 
   useEffect(() => {
     const onPopState = () => setRouteTick((current) => current + 1);
@@ -51,19 +60,62 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    storage.loadManifest().then(setManifest).catch((err: unknown) => {
+    if (isViewerBuild) return;
+    let cancelled = false;
+
+    async function restoreLastWorkspace() {
+      try {
+        const lastWorkspace = await loadRecentWorkspace();
+        if (cancelled) return;
+        setRecentWorkspace(lastWorkspace);
+        if (!lastWorkspace) {
+          setWorkspacePhase("launcher");
+          return;
+        }
+        const accessHandle = lastWorkspace.handle as FileSystemDirectoryHandle & {
+          queryPermission?: (options: { mode: "readwrite" }) => Promise<PermissionState>;
+        };
+        const permission = await accessHandle.queryPermission?.({ mode: "readwrite" });
+        if (cancelled) return;
+        if (permission !== "granted") {
+          setWorkspacePhase("launcher");
+          return;
+        }
+        const nextStorage = await openWorkspaceStorageAdapter(lastWorkspace.handle);
+        if (cancelled) return;
+        setStorage(nextStorage);
+        setWorkspaceName(lastWorkspace.name);
+        setWorkspacePhase("ready");
+      } catch (err) {
+        if (cancelled) return;
+        setError(err instanceof Error ? err.message : String(err));
+        setWorkspacePhase("launcher");
+      }
+    }
+
+    void restoreLastWorkspace();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!storage) return;
+    const activeStorage = requireStorage();
+    activeStorage.loadManifest().then(setManifest).catch((err: unknown) => {
       setError(err instanceof Error ? err.message : String(err));
     });
-  }, []);
+  }, [storage]);
 
   useEffect(() => {
     if (!manifest) return;
     let cancelled = false;
+    const activeStorage = requireStorage();
     Promise.allSettled(
       manifest.subjects.map(async (subject) => {
-        const data = await storage.loadSubject(subject.id);
+        const data = await activeStorage.loadSubject(subject.id);
         const noteIds = data.noteOrder.length > 0 ? data.noteOrder : data.notes.map((note) => note.id);
-        const meta = await Promise.all(noteIds.map((noteId) => storage.loadNoteMeta(subject.id, noteId)));
+        const meta = await Promise.all(noteIds.map((noteId) => activeStorage.loadNoteMeta(subject.id, noteId)));
         return [subject.id, data, meta] as const;
       }),
     )
@@ -87,13 +139,13 @@ export default function App() {
         setSubjects(subjectMap);
         setNotes(noteMap);
         setOpenSubjectId((current) => (current && subjectMap[current] ? current : manifest.subjectOrder.find((id) => subjectMap[id]) ?? null));
-        if (missingSubjectIds.length > 0 && appConfig.mode === "local-edit") {
+        if (missingSubjectIds.length > 0 && canEdit) {
           const cleanedManifest = {
             ...manifest,
             subjectOrder: manifest.subjectOrder.filter((id) => !missingSubjectIds.includes(id)),
             subjects: manifest.subjects.filter((subject) => !missingSubjectIds.includes(subject.id)),
           };
-          void storage.saveManifest(cleanedManifest);
+          void activeStorage.saveManifest(cleanedManifest);
           setManifest(cleanedManifest);
         }
       })
@@ -122,10 +174,18 @@ export default function App() {
     setNoteDropTarget(null);
   }
 
+  function requireStorage() {
+    if (!storage) {
+      throw new Error("Workspace is not ready.");
+    }
+    return storage;
+  }
+
   async function refreshManifestAndSubjects() {
-    const nextManifest = await storage.loadManifest();
+    const activeStorage = requireStorage();
+    const nextManifest = await activeStorage.loadManifest();
     const nextSubjectsResult = await Promise.allSettled(
-      nextManifest.subjects.map(async (subject) => [subject.id, await storage.loadSubject(subject.id)] as const),
+      nextManifest.subjects.map(async (subject) => [subject.id, await activeStorage.loadSubject(subject.id)] as const),
     );
     const nextSubjects: Array<readonly [string, SubjectData]> = [];
     const missingSubjectIds: string[] = [];
@@ -142,7 +202,7 @@ export default function App() {
     const noteSettled = await Promise.allSettled(
       nextSubjects.flatMap(([subjectId, subject]) => {
         const noteIds = subject.noteOrder.length > 0 ? subject.noteOrder : subject.notes.map((note) => note.id);
-        return noteIds.map(async (noteId) => [subjectId, await storage.loadNoteMeta(subjectId, noteId)] as const);
+        return noteIds.map(async (noteId) => [subjectId, await activeStorage.loadNoteMeta(subjectId, noteId)] as const);
       }),
     );
     const nextNotes = noteSettled.flatMap((result) => (result.status === "fulfilled" ? [result.value] : []));
@@ -155,47 +215,53 @@ export default function App() {
           }
         : nextManifest;
     setManifest(cleanedManifest);
-    if (missingSubjectIds.length > 0 && appConfig.mode === "local-edit") {
-      void storage.saveManifest(cleanedManifest);
+    if (missingSubjectIds.length > 0 && canEdit) {
+      void activeStorage.saveManifest(cleanedManifest);
     }
     setSubjects(Object.fromEntries(nextSubjects));
     setNotes(Object.fromEntries(nextNotes.map(([subjectId, note]) => [`${subjectId}:${note.id}`, note])));
   }
 
   async function createSubject(name: string) {
-    const subject = await storage.createSubject({ name });
+    const activeStorage = requireStorage();
+    const subject = await activeStorage.createSubject({ name });
     await refreshManifestAndSubjects();
     setOpenSubjectId(subject.id);
   }
 
   async function renameSubject(subjectId: string, name: string) {
+    const activeStorage = requireStorage();
     const subject = subjects[subjectId];
     const next = { ...subject, name, updatedAt: nowIso() };
-    await storage.saveSubject(next);
+    await activeStorage.saveSubject(next);
     await refreshManifestAndSubjects();
   }
 
   async function createNote(subjectId: string, title: string) {
-    await storage.createNote({ subjectId, title });
+    const activeStorage = requireStorage();
+    await activeStorage.createNote({ subjectId, title });
     await refreshManifestAndSubjects();
     setOpenSubjectId(subjectId);
   }
 
   async function renameNote(subjectId: string, noteId: string, title: string) {
+    const activeStorage = requireStorage();
     const note = notes[`${subjectId}:${noteId}`];
     const next = { ...note, title, updatedAt: nowIso() };
-    await storage.saveNoteMeta(next);
+    await activeStorage.saveNoteMeta(next);
     await refreshManifestAndSubjects();
   }
 
   async function deleteSubject(subjectId: string) {
-    await storage.deleteSubject(subjectId);
+    const activeStorage = requireStorage();
+    await activeStorage.deleteSubject(subjectId);
     await refreshManifestAndSubjects();
     setOpenSubjectId((current) => (current === subjectId ? null : current));
   }
 
   async function deleteNote(subjectId: string, noteId: string) {
-    await storage.deleteNote(subjectId, noteId);
+    const activeStorage = requireStorage();
+    await activeStorage.deleteNote(subjectId, noteId);
     await refreshManifestAndSubjects();
   }
 
@@ -218,6 +284,43 @@ export default function App() {
     closeDialog();
   }
 
+  async function handleWorkspaceReady(nextStorage: StorageAdapter, nextWorkspaceName: string, root: FileSystemDirectoryHandle) {
+    setStorage(nextStorage);
+    setWorkspaceName(nextWorkspaceName);
+    setWorkspacePhase("ready");
+    setRecentWorkspace({ name: nextWorkspaceName, handle: root, updatedAt: new Date().toISOString() });
+    try {
+      const savedRecentWorkspace = await saveRecentWorkspace({ name: nextWorkspaceName, handle: root });
+      setRecentWorkspace(savedRecentWorkspace);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  function closeWorkspaceLauncher() {
+    setStorage(null);
+    setManifest(null);
+    setSubjects({});
+    setNotes({});
+    setOpenSubjectId(null);
+    setDialog(null);
+    setDialogValue("");
+    setError(null);
+    setDragState(null);
+    setSubjectDropTarget(null);
+    setNoteDropTarget(null);
+    setWorkspaceName(null);
+    setWorkspacePhase("launcher");
+  }
+
+  async function openRecentWorkspace() {
+    if (!recentWorkspace) {
+      throw new Error("直前の workspace が見つかりません。");
+    }
+    const nextStorage = await openWorkspaceStorageAdapter(recentWorkspace.handle);
+    await handleWorkspaceReady(nextStorage, recentWorkspace.name, recentWorkspace.handle);
+  }
+
   function startDrag(kind: DragKind, subjectId: string, noteId?: string, event?: DragEvent<HTMLButtonElement>) {
     setSubjectDropTarget(null);
     setNoteDropTarget(null);
@@ -233,6 +336,7 @@ export default function App() {
   async function reorderSubject(targetSubjectId: string | "__end__") {
     if (!manifest || dragState?.kind !== "subject") return;
     if (targetSubjectId !== "__end__" && dragState.subjectId === targetSubjectId) return;
+    const activeStorage = requireStorage();
     const fromIndex = manifest.subjectOrder.indexOf(dragState.subjectId);
     if (fromIndex < 0) return;
     const nextOrder = [...manifest.subjectOrder];
@@ -240,7 +344,7 @@ export default function App() {
     const insertIndex = targetSubjectId === "__end__" ? nextOrder.length : Math.max(0, nextOrder.indexOf(targetSubjectId));
     nextOrder.splice(insertIndex, 0, moved);
     const nextManifest = { ...manifest, subjectOrder: nextOrder };
-    await storage.saveManifest(nextManifest);
+    await activeStorage.saveManifest(nextManifest);
     setManifest(nextManifest);
     clearDragTargets();
   }
@@ -248,6 +352,7 @@ export default function App() {
   async function reorderNote(subjectId: string, targetNoteId: string | "__end__") {
     if (dragState?.kind !== "note" || dragState.subjectId !== subjectId || !dragState.noteId) return;
     if (targetNoteId !== "__end__" && dragState.noteId === targetNoteId) return;
+    const activeStorage = requireStorage();
     const subject = subjects[subjectId];
     const fromIndex = subject.noteOrder.indexOf(dragState.noteId);
     if (fromIndex < 0) return;
@@ -262,35 +367,54 @@ export default function App() {
     );
     if (movedNote) nextNotes.splice(insertIndex, 0, movedNote);
     const nextSubject = { ...subject, noteOrder: nextOrder, notes: nextNotes, updatedAt: nowIso() };
-    await storage.saveSubject(nextSubject);
+    await activeStorage.saveSubject(nextSubject);
     setSubjects((current) => ({ ...current, [subjectId]: nextSubject }));
     clearDragTargets();
   }
 
+  if (!isViewerBuild && workspacePhase === "booting") {
+    return (
+      <main className="app-shell">
+        <section className="panel workspace-launcher">
+          <div className="eyebrow">godnote</div>
+          <h1>Home</h1>
+          <p>直前の workspace を確認しています。</p>
+        </section>
+      </main>
+    );
+  }
+
+  if (!isViewerBuild && workspacePhase === "launcher") {
+    return <WorkspaceLauncherPage recentWorkspace={recentWorkspace} onWorkspaceReady={handleWorkspaceReady} onOpenRecentWorkspace={openRecentWorkspace} />;
+  }
+
+  if (!storage) {
+    return null;
+  }
+
   if (route.kind === "note") {
-    return <NoteEditorPage subjectId={route.subjectId} noteId={route.noteId} onBack={navigateHome} />;
+    return <NoteEditorPage subjectId={route.subjectId} noteId={route.noteId} storage={storage} onBack={navigateHome} />;
   }
 
   return (
     <main className="app-shell">
       <section className="panel">
-        <div className="eyebrow">mynote</div>
+        <div className="eyebrow">godnote</div>
         <h1>Home</h1>
-        <p>Mode: <strong>{appConfig.mode}</strong></p>
-        {appConfig.mode === "local-edit" ? (
-          <IconButton
-            label="教科を追加"
-            icon="+"
-            onClick={() => openDialog({ kind: "create-subject" })}
-          />
+        {workspaceName ? <p className="muted">workspace: {workspaceName}</p> : null}
+        {canEdit ? (
+          <div className="actions">
+            <IconButton label="教科を追加" icon="+" onClick={() => openDialog({ kind: "create-subject" })} />
+            {!isViewerBuild ? <IconButton label="ワークスペースを切り替える" icon="↻" onClick={closeWorkspaceLauncher} /> : null}
+          </div>
         ) : (
-          <p className="muted">Readonly mode</p>
+          <p className="muted">閲覧専用</p>
         )}
         {error ? (
           <p className="error">{error}</p>
         ) : manifest ? (
           <div className="subject-list">
-            {appConfig.mode === "local-edit" && (
+            {canEdit && (
               <div
                 className={`subject-drop-start ${dragState?.kind === "subject" && subjectDropTarget === (manifest.subjectOrder.find((id) => subjects[id]) ?? "__end__") ? "active" : ""}`}
                 onDragOver={(event) => {
@@ -317,13 +441,13 @@ export default function App() {
                   <article
                     className={`subject-card ${isOpen ? "open" : "closed"} ${dragState?.kind === "subject" && dragState.subjectId === subjectId ? "dragging" : ""}`}
                     onDragEnter={(event) => {
-                      if (appConfig.mode === "local-edit" && dragState?.kind === "subject") {
+                      if (canEdit && dragState?.kind === "subject") {
                         event.preventDefault();
                         setSubjectDropTarget(subjectId);
                       }
                     }}
                     onDragOver={(event) => {
-                      if (appConfig.mode === "local-edit" && dragState?.kind === "subject") {
+                      if (canEdit && dragState?.kind === "subject") {
                         event.preventDefault();
                         const rect = event.currentTarget.getBoundingClientRect();
                         const shouldMoveAfter = event.clientY > rect.top + rect.height * 0.65;
@@ -334,7 +458,7 @@ export default function App() {
                   >
                   <header className="subject-header">
                     <div className="subject-head-left">
-                      {appConfig.mode === "local-edit" ? (
+                      {canEdit ? (
                         <button
                           className="drag-handle subject-drag"
                           draggable
@@ -350,7 +474,7 @@ export default function App() {
                       <button className="subject-title" onClick={() => setOpenSubjectId(isOpen ? null : subjectId)}>
                         {isOpen ? "▾" : "▸"} {subject.name}
                       </button>
-                      {appConfig.mode === "local-edit" && (
+                      {canEdit && (
                         <IconButton
                           label="編集"
                           icon="✎"
@@ -359,7 +483,7 @@ export default function App() {
                         />
                       )}
                     </div>
-                    {appConfig.mode === "local-edit" && (
+                    {canEdit && (
                       <div className="actions">
                         <IconButton label="ノートを追加" icon="+" onClick={() => openDialog({ kind: "create-note", subjectId })} />
                         <IconButton
@@ -374,7 +498,7 @@ export default function App() {
                   </header>
                   {isOpen && (
                     <ul className="note-list">
-                      {appConfig.mode === "local-edit" && (
+                      {canEdit && (
                         <li
                           className={`note-insert-zone ${dragState?.kind === "note" && noteDropTarget?.subjectId === subjectId && noteDropTarget.noteId === (subject.noteOrder.find((id) => notes[`${subjectId}:${id}`]) ?? "__end__") ? "active" : ""}`}
                           onDragOver={(event) => {
@@ -404,13 +528,13 @@ export default function App() {
                             <li
                               className={`note-row ${dragState?.kind === "note" && dragState.subjectId === subjectId && dragState.noteId === noteId ? "dragging" : ""}`}
                               onDragEnter={(event) => {
-                                if (appConfig.mode === "local-edit" && dragState?.kind === "note") {
+                                if (canEdit && dragState?.kind === "note") {
                                   event.preventDefault();
                                   setNoteDropTarget({ subjectId, noteId });
                                 }
                               }}
                               onDragOver={(event) => {
-                                if (appConfig.mode === "local-edit" && dragState?.kind === "note") {
+                                if (canEdit && dragState?.kind === "note") {
                                   event.preventDefault();
                                   const rect = event.currentTarget.getBoundingClientRect();
                                   const shouldMoveAfter = event.clientY > rect.top + rect.height * 0.65;
@@ -419,7 +543,7 @@ export default function App() {
                               }}
                               onDrop={() => void reorderNote(subjectId, noteDropTarget?.subjectId === subjectId ? noteDropTarget.noteId ?? noteId : noteId)}
                             >
-                              {appConfig.mode === "local-edit" ? (
+                              {canEdit ? (
                                 <button
                                   className="drag-handle"
                                   draggable
@@ -436,7 +560,7 @@ export default function App() {
                                 <button className="note-title-button" onClick={() => navigateToNote(subjectId, noteId)}>
                                   <span className="note-title">{note.title}</span>
                                 </button>
-                                {appConfig.mode === "local-edit" && (
+                                {canEdit && (
                                   <IconButton
                                     label="編集"
                                     icon="✎"
@@ -445,7 +569,7 @@ export default function App() {
                                   />
                                 )}
                               </span>
-                              {appConfig.mode === "local-edit" && (
+                              {canEdit && (
                                 <span className="actions">
                                   <IconButton
                                     tone="danger"
@@ -459,7 +583,7 @@ export default function App() {
                           </Fragment>
                         );
                       })}
-                      {appConfig.mode === "local-edit" && (
+                      {canEdit && (
                         <li
                           className={`note-insert-zone ${dragState?.kind === "note" && noteDropTarget?.subjectId === subjectId && noteDropTarget.noteId === "__end__" ? "active" : ""}`}
                           onDragOver={(event) => {
@@ -479,7 +603,7 @@ export default function App() {
                 </div>
               );
             })}
-            {appConfig.mode === "local-edit" && (
+            {canEdit && (
               <div
                 className={`subject-drop-end ${dragState?.kind === "subject" && subjectDropTarget === "__end__" ? "active" : ""}`}
                 onDragOver={(event) => {

@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "appName": "godnote",
+  "appVersion": "0.1.0",
+  "subjectOrder": [
+    "3bcf9c4b-9908-4a7e-af35-e9643022887e"
+  ],
+  "subjects": [
+    {
+      "id": "3bcf9c4b-9908-4a7e-af35-e9643022887e",
+      "name": "テスト科目",
+      "path": "subjects/3bcf9c4b-9908-4a7e-af35-e9643022887e.json"
+    }
+  ]
+}

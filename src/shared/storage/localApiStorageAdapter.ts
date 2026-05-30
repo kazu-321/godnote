@@ -2,7 +2,6 @@ import type { StorageAdapter } from "./storageAdapter";
 import type { AppManifest } from "../../features/notes/model/manifestTypes";
 import type { SubjectData } from "../../features/notes/model/subjectTypes";
 import type { NoteData, NoteMeta, CreateSubjectInput, CreateNoteInput, WritePngAssetInput, DeleteAssetInput, GenerateThumbnailInput, AssetRef } from "../../features/notes/model/noteTypes";
-import type { AppMode } from "../../app/appMode";
 
 async function request(url: string, init?: RequestInit): Promise<Response> {
   return fetch(url, {
@@ -23,7 +22,6 @@ async function noContent(url: string, init?: RequestInit): Promise<void> {
 }
 
 export class LocalApiStorageAdapter implements StorageAdapter {
-  getAppMode(): AppMode { return "local-edit"; }
   loadManifest() { return json<AppManifest>("/api/manifest"); }
   saveManifest(manifest: AppManifest) { return noContent("/api/manifest", { method: "PUT", body: JSON.stringify(manifest) }); }
   loadSubject(subjectId: string) { return json<SubjectData>(`/api/subjects/${subjectId}`); }

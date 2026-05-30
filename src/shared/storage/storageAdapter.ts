@@ -1,4 +1,3 @@
-import type { AppMode } from "../../app/appMode";
 import type {
   AssetRef,
   CreateNoteInput,
@@ -11,11 +10,8 @@ import type {
 } from "../../features/notes/model/noteTypes";
 import type { AppManifest } from "../../features/notes/model/manifestTypes";
 import type { SubjectData } from "../../features/notes/model/subjectTypes";
-import { LocalApiStorageAdapter } from "./localApiStorageAdapter";
-import { StaticReadonlyStorageAdapter } from "./staticReadonlyStorageAdapter";
 
 export interface StorageAdapter {
-  getAppMode(): AppMode;
   loadManifest(): Promise<AppManifest>;
   saveManifest(manifest: AppManifest): Promise<void>;
   loadSubject(subjectId: string): Promise<SubjectData>;
@@ -31,8 +27,4 @@ export interface StorageAdapter {
   writePngAsset(input: WritePngAssetInput): Promise<AssetRef>;
   deleteAsset(input: DeleteAssetInput): Promise<void>;
   generateThumbnail(input: GenerateThumbnailInput): Promise<AssetRef>;
-}
-
-export function createStorageAdapter(mode: AppMode): StorageAdapter {
-  return mode === "local-edit" ? new LocalApiStorageAdapter() : new StaticReadonlyStorageAdapter();
 }

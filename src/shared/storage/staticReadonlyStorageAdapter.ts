@@ -2,9 +2,8 @@ import type { StorageAdapter } from "./storageAdapter";
 import type { AppManifest } from "../../features/notes/model/manifestTypes";
 import type { SubjectData } from "../../features/notes/model/subjectTypes";
 import type { NoteData, NoteMeta, CreateSubjectInput, CreateNoteInput, WritePngAssetInput, DeleteAssetInput, GenerateThumbnailInput, AssetRef } from "../../features/notes/model/noteTypes";
-import type { AppMode } from "../../app/appMode";
 
-const readonlyError = () => new Error("Readonly mode does not allow writes.");
+const readonlyError = () => new Error("Readonly viewer does not allow writes.");
 
 function staticDataPath(path: string) {
   if (typeof window === "undefined" || typeof document === "undefined") {
@@ -20,7 +19,6 @@ async function readJson<T>(path: string): Promise<T> {
 }
 
 export class StaticReadonlyStorageAdapter implements StorageAdapter {
-  getAppMode(): AppMode { return "readonly-pages"; }
   loadManifest() { return readJson<AppManifest>("manifest.json"); }
   saveManifest(_: AppManifest) { return Promise.reject(readonlyError()); }
   loadSubject(subjectId: string) { return readJson<SubjectData>(`subjects/${subjectId}.json`); }

@@ -8,7 +8,7 @@ function isMissingFile(error: unknown) {
 }
 
 async function loadManifest(): Promise<any> {
-  return readJsonFile(manifestPath);
+  return readJsonFile(manifestPath());
 }
 
 async function loadSubject(subjectId: string): Promise<any> {

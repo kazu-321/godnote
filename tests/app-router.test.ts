@@ -53,7 +53,7 @@ function installWindow(url: string) {
 }
 
 test("readRouteState parses note routes and navigation updates the URL", async () => {
-  const { events, restore } = installWindow("http://example.test/?mode=local-edit");
+  const { events, restore } = installWindow("http://example.test/");
   try {
     const router = await import("../src/app/router");
     assert.deepEqual(router.readRouteState(), { kind: "home" });
