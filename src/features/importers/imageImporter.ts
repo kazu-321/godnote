@@ -42,6 +42,16 @@ async function canvasToPngBytes(canvas: HTMLCanvasElement) {
   return new Uint8Array(await blob.arrayBuffer());
 }
 
+function yieldToMainThread() {
+  return new Promise<void>((resolve) => {
+    if (typeof window !== "undefined" && typeof window.requestAnimationFrame === "function") {
+      window.requestAnimationFrame(() => resolve());
+      return;
+    }
+    window.setTimeout(() => resolve(), 0);
+  });
+}
+
 function createCanvas(width: number, height: number) {
   const canvas = document.createElement("canvas");
   canvas.width = Math.max(1, Math.round(width));
@@ -61,7 +71,7 @@ function drawBitmap(bitmap: ImageBitmap) {
   return canvas;
 }
 
-function applyTransparentBackground(canvas: HTMLCanvasElement, options: TransparentBackgroundOptions) {
+async function applyTransparentBackground(canvas: HTMLCanvasElement, options: TransparentBackgroundOptions) {
   if (!options.enabled || options.mode === "none") return canvas;
   const context = canvas.getContext("2d");
   if (!context) throw new Error("Canvas context unavailable.");
@@ -70,16 +80,23 @@ function applyTransparentBackground(canvas: HTMLCanvasElement, options: Transpar
   const data = imageData.data;
   const picked = options.mode === "picked-color" ? hexToRgb(options.pickedColor ?? "#ffffff") : null;
   const tolerance = Math.max(0, options.tolerance);
+  const pixelsPerSlice = 16384;
   for (let index = 0; index < data.length; index += 4) {
     const r = data[index];
     const g = data[index + 1];
     const b = data[index + 2];
     const alpha = data[index + 3];
-    if (alpha === 0) continue;
-    const isMatch = picked
-      ? Math.abs(r - picked.r) <= tolerance && Math.abs(g - picked.g) <= tolerance && Math.abs(b - picked.b) <= tolerance
-      : r >= 255 - tolerance && g >= 255 - tolerance && b >= 255 - tolerance;
-    if (isMatch) data[index + 3] = 0;
+    if (alpha !== 0) {
+      const isMatch = picked
+        ? Math.abs(r - picked.r) <= tolerance && Math.abs(g - picked.g) <= tolerance && Math.abs(b - picked.b) <= tolerance
+        : r >= 255 - tolerance && g >= 255 - tolerance && b >= 255 - tolerance;
+      if (isMatch) data[index + 3] = 0;
+    }
+    if (index > 0 && (index / 4) % pixelsPerSlice === 0) {
+      // Yield periodically so large images do not monopolize the main thread.
+      // eslint-disable-next-line no-await-in-loop
+      await yieldToMainThread();
+    }
   }
   context.putImageData(imageData, 0, 0);
   return canvas;
@@ -122,7 +139,7 @@ function solveHomography(
   return [...values, 1];
 }
 
-function applyPerspectiveTransform(canvas: HTMLCanvasElement, options: PerspectiveTransformOptions) {
+async function applyPerspectiveTransform(canvas: HTMLCanvasElement, options: PerspectiveTransformOptions) {
   if (!options.enabled || !options.points) return canvas;
   const { width: srcWidth, height: srcHeight } = canvas;
   const srcContext = canvas.getContext("2d");
@@ -150,6 +167,8 @@ function applyPerspectiveTransform(canvas: HTMLCanvasElement, options: Perspecti
   const srcData = source.data;
   const outImage = outContext.createImageData(outputWidth, outputHeight);
   const dstData = outImage.data;
+  const sliceHeight = Math.max(1, Math.floor(outputHeight / 32));
+  let lastYieldAt = performance.now();
   for (let y = 0; y < outputHeight; y += 1) {
     for (let x = 0; x < outputWidth; x += 1) {
       const denom = inverse[6] * x + inverse[7] * y + inverse[8];
@@ -176,6 +195,10 @@ function applyPerspectiveTransform(canvas: HTMLCanvasElement, options: Perspecti
         dstData[outIndex + channel] = Math.round(a * (1 - ty) + b * ty);
       }
     }
+    if (y > 0 && y % sliceHeight === 0 && performance.now() - lastYieldAt > 8) {
+      lastYieldAt = performance.now();
+      await yieldToMainThread();
+    }
   }
   outContext.putImageData(outImage, 0, 0);
   return output;
@@ -187,8 +210,8 @@ export async function importImageFile(file: File, options: {
 }) {
   const bitmap = await loadBitmap(file);
   let canvas = drawBitmap(bitmap);
-  canvas = applyTransparentBackground(canvas, options.transparentBackground);
-  canvas = applyPerspectiveTransform(canvas, options.perspective);
+  canvas = await applyTransparentBackground(canvas, options.transparentBackground);
+  canvas = await applyPerspectiveTransform(canvas, options.perspective);
   const bytes = await canvasToPngBytes(canvas);
   return { bytes, width: canvas.width, height: canvas.height };
 }

@@ -796,6 +796,7 @@ export function NoteEditorPage(props: { subjectId: string; noteId: string; stora
   const [dirty, setDirty] = useState(false);
   const [imageImportDialog, setImageImportDialog] = useState<ImageImportDialogState | null>(null);
   const [pdfImportDialog, setPdfImportDialog] = useState<PdfImportDialogState | null>(null);
+  const [imageImportLoading, setImageImportLoading] = useState(false);
   const [pdfImportLoading, setPdfImportLoading] = useState(false);
   const [spacePressed, setSpacePressed] = useState(false);
   const [shiftPressed, setShiftPressed] = useState(false);
@@ -934,6 +935,7 @@ export function NoteEditorPage(props: { subjectId: string; noteId: string; stora
   }
 
   function closeImageImportDialog() {
+    if (imageImportLoading) return;
     imageImportDragRef.current = null;
     if (imageImportDialog?.previewUrl) URL.revokeObjectURL(imageImportDialog.previewUrl);
     setImageImportPreviewLayout(null);
@@ -1051,40 +1053,45 @@ export function NoteEditorPage(props: { subjectId: string; noteId: string; stora
 
   async function confirmImageImport() {
     if (!imageImportDialog) return;
-    const result = await importImageFile(imageImportDialog.file, {
-      transparentBackground: imageImportDialog.transparentBackground,
-      perspective: imageImportDialog.perspective,
-    });
-    const assetName = `${imageImportDialog.file.name.replace(/\.[^.]+$/, "") || "image"}-${crypto.randomUUID()}.png`;
-    const asset = await storage.writePngAsset({
-      subjectId: props.subjectId,
-      noteId: props.noteId,
-      bytes: result.bytes,
-      fileName: assetName,
-    });
-    const timestamp = nowIso();
-    const image: ImageCanvasElement = {
-      id: crypto.randomUUID(),
-      type: "image",
-      x: screenToWorld(importAnchorRef.current, viewport).x,
-      y: screenToWorld(importAnchorRef.current, viewport).y,
-      width: result.width,
-      height: result.height,
-      rotation: 0,
-      zIndex: nextZIndex(elements),
-      src: asset.path,
-      sourceType: "image",
-      originalFileName: undefined,
-      importInfo: {
-        importedAt: timestamp,
-        transparentBackgroundApplied: imageImportDialog.transparentBackground.enabled,
-        perspectiveTransformApplied: imageImportDialog.perspective.enabled,
-      },
-      createdAt: timestamp,
-      updatedAt: timestamp,
-    };
-    setElements((current) => [...current, image]);
-    closeImageImportDialog();
+    setImageImportLoading(true);
+    try {
+      const result = await importImageFile(imageImportDialog.file, {
+        transparentBackground: imageImportDialog.transparentBackground,
+        perspective: imageImportDialog.perspective,
+      });
+      const assetName = `${imageImportDialog.file.name.replace(/\.[^.]+$/, "") || "image"}-${crypto.randomUUID()}.png`;
+      const asset = await storage.writePngAsset({
+        subjectId: props.subjectId,
+        noteId: props.noteId,
+        bytes: result.bytes,
+        fileName: assetName,
+      });
+      const timestamp = nowIso();
+      const image: ImageCanvasElement = {
+        id: crypto.randomUUID(),
+        type: "image",
+        x: screenToWorld(importAnchorRef.current, viewport).x,
+        y: screenToWorld(importAnchorRef.current, viewport).y,
+        width: result.width,
+        height: result.height,
+        rotation: 0,
+        zIndex: nextZIndex(elements),
+        src: asset.path,
+        sourceType: "image",
+        originalFileName: undefined,
+        importInfo: {
+          importedAt: timestamp,
+          transparentBackgroundApplied: imageImportDialog.transparentBackground.enabled,
+          perspectiveTransformApplied: imageImportDialog.perspective.enabled,
+        },
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      };
+      setElements((current) => [...current, image]);
+      closeImageImportDialog();
+    } finally {
+      setImageImportLoading(false);
+    }
   }
 
   async function confirmPdfImport() {
@@ -2951,7 +2958,7 @@ export function NoteEditorPage(props: { subjectId: string; noteId: string; stora
         }}
       />
 
-      <Modal open={imageImportDialog !== null} title="画像を取り込む" onClose={closeImageImportDialog}>
+      <Modal open={imageImportDialog !== null} title="画像を取り込む" onClose={imageImportLoading ? () => undefined : closeImageImportDialog}>
         {imageImportDialog && (
           <div className="modal-body">
             <div ref={imageImportCropperRef} className="modal-preview modal-preview-cropper">
@@ -3140,8 +3147,17 @@ export function NoteEditorPage(props: { subjectId: string; noteId: string; stora
               </div>
             </details>
             <div className="modal-actions">
-              <button type="button" onClick={closeImageImportDialog}>キャンセル</button>
-              <button type="button" onClick={() => void confirmImageImport()}>取り込む</button>
+              <button type="button" onClick={closeImageImportDialog} disabled={imageImportLoading}>キャンセル</button>
+              <button type="button" onClick={() => void confirmImageImport()} disabled={imageImportLoading}>
+                {imageImportLoading ? (
+                  <>
+                    <span className="button-spinner" aria-hidden="true" />
+                    <span>読み込み中...</span>
+                  </>
+                ) : (
+                  <span>取り込む</span>
+                )}
+              </button>
             </div>
           </div>
         )}
